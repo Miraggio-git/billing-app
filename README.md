@@ -67,7 +67,6 @@ The system is three interconnected layers:
 | **Backend** | Supabase (Postgres + Auth + RLS + Storage + DB Webhooks) | Source of truth. Tables, row-level security, PDF storage bucket, and webhooks that fire n8n. |
 | **AI** | Claude | Reads invoice + contract PDFs and returns structured fields. |
 | **Email** | Outlook (vendor inbox + outbound) | Invoice intake and vendor notifications. |
-| **Hosting** | VPS | Hosts the n8n instance. |
 
 ### Dashboard modules (in the app repo)
 - **Dashboard** — overview / KPIs.
