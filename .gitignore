@@ -1,0 +1,24 @@
+# Secrets — never commit
+.env
+.env.*
+*.key
+
+# Node / build artifacts (e.g. inside app/)
+node_modules/
+dist/
+dist-ssr/
+*.local
+*.log
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+.claude/
+.~lock.*#
+
+# Don't ship raw invoice/vendor data with the repo
+*.pdf
+*.xlsx
+*.csv

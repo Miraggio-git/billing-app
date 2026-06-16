@@ -1,0 +1,768 @@
+{
+  "name": "Miraggio — L1 & L2 Approval Webhook (SECURED)",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## 🔐 Approval Webhook (L1 + L2)\n\n**One webhook handles all 4 cases:**\n- L1 + APPROVE → bill goes to PENDING_L2, L2 emailed\n- L1 + REJECT  → bill goes to REJECTED_L1, vendor notified\n- L2 + APPROVE → bill goes to PENDING_PAYMENT, finance gets bank details\n- L2 + REJECT  → bill goes to REJECTED_L2, vendor notified\n\n**Test URL (production):**\n`https://YOUR-N8N/webhook/approval?token=XYZ`\n\n**Before activating:**\n1. Replace `L2_APPROVER_EMAIL@miraggio.com` in 'Send L2 Email'\n2. Replace `FINANCE_TEAM_EMAIL@miraggio.com` in 'Notify Finance'\n3. Activate the workflow",
+        "height": 380,
+        "width": 460,
+        "color": 5
+      },
+      "id": "9a880fd8-e46f-4491-8762-11852bbc9770",
+      "name": "📋 SETUP",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -496,
+        -192
+      ]
+    },
+    {
+      "parameters": {
+        "path": "approval",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "e3be4f98-8988-4659-83b9-b58ff8c45e8e",
+      "name": "Approval Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -896,
+        256
+      ],
+      "webhookId": "miraggio-approval"
+    },
+    {
+      "parameters": {
+        "url": "=https://ydoitzgqavfmbyrirxxe.supabase.co/rest/v1/approval_tokens?token=eq.{{ $json.query.token }}&select=*,bills(*,vendors(*))",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inlkb2l0emdxYXZmbWJ5cmlyeHhlIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NzAwNTI1NiwiZXhwIjoyMDkyNTgxMjU2fQ.nHSXgeQ28y1Y6sK7Ck3fTfRgPfwuV0XHpuMlbPxDryA"
+            },
+            {
+              "name": "Authorization",
+              "value": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inlkb2l0emdxYXZmbWJ5cmlyeHhlIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NzAwNTI1NiwiZXhwIjoyMDkyNTgxMjU2fQ.nHSXgeQ28y1Y6sK7Ck3fTfRgPfwuV0XHpuMlbPxDryA"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "fbd277c4-8662-4760-96b4-253ba7fb506c",
+      "name": "Supabase — Lookup Token",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -672,
+        256
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// SECURED Validate Token.\n// Approver identity now comes from the token row (actor_email / actor_name),\n// which is written ONLY by the authenticated dashboard. Email links no longer\n// carry approval power, so we reject any token with no recorded actor.\n\nconst rows = $input.first().json;\nconst row = Array.isArray(rows) ? rows[0] : rows;\n\nif (!row || !row.token) {\n  return [{ json: { valid: false, reason: 'INVALID_TOKEN', message: 'This approval link is invalid.' } }];\n}\nif (row.used === true) {\n  return [{ json: { valid: false, reason: 'ALREADY_USED', message: 'This approval link has already been used.' } }];\n}\nconst expiresAt = new Date(row.expires_at);\nif (expiresAt < new Date()) {\n  return [{ json: { valid: false, reason: 'EXPIRED', message: 'This approval link has expired.' } }];\n}\n// SECURITY: only tokens created by an authenticated dashboard user carry an actor.\nif (!row.actor_email) {\n  return [{ json: { valid: false, reason: 'UNATTRIBUTED', message: 'This action must be performed from the signed-in dashboard.' } }];\n}\n\nconst bill   = row.bills   || {};\nconst vendor = bill.vendors || {};\n\nreturn [{\n  json: {\n    valid: true,\n    token: row.token,\n    token_id: row.id,\n    bill_id: row.bill_id,\n    level: row.level,\n    action: row.action,\n    level_action: row.level + '_' + row.action,\n\n    invoice_number: bill.invoice_number,\n    amount: bill.amount,\n    bill_status: bill.status,\n    anomaly_flags: bill.anomaly_flags || [],\n\n    vendor_id: vendor.id,\n    vendor_name: vendor.name,\n    vendor_email: vendor.email,\n    vendor_bank_name: vendor.bank_name,\n    vendor_bank_account_no: vendor.bank_account_no,\n    vendor_bank_ifsc: vendor.bank_ifsc,\n    vendor_bank_account_name: vendor.bank_account_name,\n\n    bill_pdf_url: bill.bill_pdf_url || null,\n\n    // REAL approver — taken from who acted in the dashboard, not hardcoded.\n    approver_email: row.actor_email,\n    approver_name:  row.actor_name || row.actor_email,\n    reason:         row.reason || null,\n    approved_at:    new Date().toISOString(),\n\n    vendor_category: vendor.category || null\n  }\n}];"
+      },
+      "id": "87bd3a2e-7a90-4303-addd-b2d146408a94",
+      "name": "Validate Token",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -448,
+        256
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "cond-valid",
+              "leftValue": "={{ $json.valid }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "33fdcb4e-7f14-4875-be2b-74a3d65842b8",
+      "name": "Token Valid?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        -224,
+        256
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "=<!DOCTYPE html><html><head><title>Approval Link Error</title><meta charset=\"utf-8\"><style>body{font-family:-apple-system,Arial,sans-serif;max-width:500px;margin:80px auto;padding:40px;text-align:center;color:#333}h1{color:#dc3545}.box{background:#f8d7da;border:1px solid #f5c6cb;padding:24px;border-radius:8px}</style></head><body><h1>⚠️ Link Error</h1><div class=\"box\"><p>{{ $json.message }}</p></div><p style=\"color:#666;font-size:13px;margin-top:30px\">If you believe this is a mistake, contact the Miraggio finance team.</p></body></html>",
+        "options": {
+          "responseCode": 400,
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "text/html; charset=utf-8"
+              }
+            ]
+          }
+        }
+      },
+      "id": "a78cb07f-8aea-400a-853b-3cd74aadcdac",
+      "name": "Respond: Invalid Link",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        352
+      ]
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "=https://ydoitzgqavfmbyrirxxe.supabase.co/rest/v1/approval_tokens?bill_id=eq.{{ $json.bill_id }}&level=eq.{{ $json.level }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inlkb2l0emdxYXZmbWJ5cmlyeHhlIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NzAwNTI1NiwiZXhwIjoyMDkyNTgxMjU2fQ.nHSXgeQ28y1Y6sK7Ck3fTfRgPfwuV0XHpuMlbPxDryA"
+            },
+            {
+              "name": "Authorization",
+              "value": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inlkb2l0emdxYXZmbWJ5cmlyeHhlIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NzAwNTI1NiwiZXhwIjoyMDkyNTgxMjU2fQ.nHSXgeQ28y1Y6sK7Ck3fTfRgPfwuV0XHpuMlbPxDryA"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Prefer",
+              "value": "return=minimal"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"used\":true,\"used_at\":\"{{ $json.approved_at }}\"}",
+        "options": {}
+      },
+      "id": "d990a4dd-03d8-41a6-b125-9416800f4f98",
+      "name": "Mark Tokens Used (both)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        0,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "id": "case-l1a",
+                    "leftValue": "={{ $('Validate Token').item.json.level_action }}",
+                    "rightValue": "L1_APPROVE",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "L1_APPROVE"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "id": "case-l1r",
+                    "leftValue": "={{ $('Validate Token').item.json.level_action }}",
+                    "rightValue": "L1_REJECT",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "L1_REJECT"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "id": "case-l2a",
+                    "leftValue": "={{ $('Validate Token').item.json.level_action }}",
+                    "rightValue": "L2_APPROVE",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "L2_APPROVE"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "id": "case-l2r",
+                    "leftValue": "={{ $('Validate Token').item.json.level_action }}",
+                    "rightValue": "L2_REJECT",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "L2_REJECT"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "f1136793-aec5-4cbd-851e-34f053cef0c2",
+      "name": "Route by Level + Action",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [
+        224,
+        128
+      ]
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "=https://ydoitzgqavfmbyrirxxe.supabase.co/rest/v1/bills?id=eq.{{ $('Validate Token').item.json.bill_id }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inlkb2l0emdxYXZmbWJ5cmlyeHhlIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NzAwNTI1NiwiZXhwIjoyMDkyNTgxMjU2fQ.nHSXgeQ28y1Y6sK7Ck3fTfRgPfwuV0XHpuMlbPxDryA"
+            },
+            {
+              "name": "Authorization",
+              "value": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inlkb2l0emdxYXZmbWJ5cmlyeHhlIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NzAwNTI1NiwiZXhwIjoyMDkyNTgxMjU2fQ.nHSXgeQ28y1Y6sK7Ck3fTfRgPfwuV0XHpuMlbPxDryA"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Prefer",
+              "value": "return=minimal"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"status\":\"PENDING_L2\",\"l1_approver_email\":\"{{ $('Validate Token').item.json.approver_email }}\",\"l1_approved_by\":\"{{ $('Validate Token').item.json.approver_name }}\",\"l1_approved_at\":\"{{ $('Validate Token').item.json.approved_at }}\"}",
+        "options": {}
+      },
+      "id": "fabb2530-0d3d-41e5-b2f2-62e1b80b13d7",
+      "name": "Bill → PENDING_L2",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        448,
+        -128
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "=<!DOCTYPE html><html><head><title>L1 Approved</title><meta charset=\"utf-8\"><style>body{font-family:-apple-system,Arial,sans-serif;max-width:500px;margin:80px auto;padding:40px;text-align:center;color:#333}h1{color:#28a745}.box{background:#d4edda;border:1px solid #c3e6cb;padding:24px;border-radius:8px}</style></head><body><h1>✅ L1 Approval Recorded</h1><div class=\"box\"><p>Bill <strong>{{ $('Validate Token').item.json.invoice_number }}</strong> from <strong>{{ $('Validate Token').item.json.vendor_name }}</strong> has been moved to <strong>PENDING_L2</strong>.</p><p>The L2 reviewer has been notified.</p></div><p style=\"color:#666;font-size:13px;margin-top:30px\">You can close this tab.</p></body></html>",
+        "options": {
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "text/html; charset=utf-8"
+              }
+            ]
+          }
+        }
+      },
+      "id": "f1517eaf-a0c9-476a-9a13-9e777c52cc2f",
+      "name": "Respond: L1 Approved",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1552,
+        -128
+      ]
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "=https://ydoitzgqavfmbyrirxxe.supabase.co/rest/v1/bills?id=eq.{{ $('Validate Token').item.json.bill_id }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inlkb2l0emdxYXZmbWJ5cmlyeHhlIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NzAwNTI1NiwiZXhwIjoyMDkyNTgxMjU2fQ.nHSXgeQ28y1Y6sK7Ck3fTfRgPfwuV0XHpuMlbPxDryA"
+            },
+            {
+              "name": "Authorization",
+              "value": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inlkb2l0emdxYXZmbWJ5cmlyeHhlIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NzAwNTI1NiwiZXhwIjoyMDkyNTgxMjU2fQ.nHSXgeQ28y1Y6sK7Ck3fTfRgPfwuV0XHpuMlbPxDryA"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Prefer",
+              "value": "return=minimal"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"status\":\"REJECTED_L1\",\"l1_approver_email\":\"{{ $('Validate Token').item.json.approver_email }}\",\"l1_rejected_by\":\"{{ $('Validate Token').item.json.approver_name }}\",\"l1_rejected_at\":\"{{ $('Validate Token').item.json.approved_at }}\",\"l1_rejection_reason\":\"{{ $('Validate Token').item.json.reason }}\"}",
+        "options": {}
+      },
+      "id": "8b35771d-64a9-4e96-9d8c-10c3485e2e68",
+      "name": "Bill → REJECTED_L1",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        448,
+        64
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "=<!DOCTYPE html><html><head><title>L1 Rejected</title><meta charset=\"utf-8\"><style>body{font-family:-apple-system,Arial,sans-serif;max-width:500px;margin:80px auto;padding:40px;text-align:center;color:#333}h1{color:#dc3545}.box{background:#f8d7da;border:1px solid #f5c6cb;padding:24px;border-radius:8px}</style></head><body><h1>❌ Bill Rejected</h1><div class=\"box\"><p>Bill <strong>{{ $('Validate Token').item.json.invoice_number }}</strong> from <strong>{{ $('Validate Token').item.json.vendor_name }}</strong> has been marked <strong>REJECTED_L1</strong>.</p><p>The vendor has been notified.</p></div></body></html>",
+        "options": {
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "text/html; charset=utf-8"
+              }
+            ]
+          }
+        }
+      },
+      "id": "24dffceb-5124-40c9-a3cb-9bd316f40298",
+      "name": "Respond: L1 Rejected",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        672,
+        64
+      ]
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "=https://ydoitzgqavfmbyrirxxe.supabase.co/rest/v1/bills?id=eq.{{ $('Validate Token').item.json.bill_id }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inlkb2l0emdxYXZmbWJ5cmlyeHhlIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NzAwNTI1NiwiZXhwIjoyMDkyNTgxMjU2fQ.nHSXgeQ28y1Y6sK7Ck3fTfRgPfwuV0XHpuMlbPxDryA"
+            },
+            {
+              "name": "Authorization",
+              "value": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inlkb2l0emdxYXZmbWJ5cmlyeHhlIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NzAwNTI1NiwiZXhwIjoyMDkyNTgxMjU2fQ.nHSXgeQ28y1Y6sK7Ck3fTfRgPfwuV0XHpuMlbPxDryA"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Prefer",
+              "value": "return=minimal"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"status\":\"PENDING_PAYMENT\",\"l2_approver_email\":\"{{ $('Validate Token').item.json.approver_email }}\",\"l2_approved_by\":\"{{ $('Validate Token').item.json.approver_name }}\",\"l2_approved_at\":\"{{ $('Validate Token').item.json.approved_at }}\"}",
+        "options": {}
+      },
+      "id": "f97a721d-129c-4375-bc14-6f531efbfa02",
+      "name": "Bill → PENDING_PAYMENT",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        448,
+        256
+      ]
+    },
+    {
+      "parameters": {
+        "toRecipients": "hs23hb@gmail.com",
+        "subject": "=💰 Pay Vendor: {{ $('Validate Token').item.json.vendor_name }} — ₹{{ $('Validate Token').item.json.amount }}",
+        "bodyContent": "==<!DOCTYPE html><html><head><meta charset=\"UTF-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1.0\"></head><body style=\"margin:0;padding:0;background:#f4f4f5;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif;\"><table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\" style=\"background:#f4f4f5;padding:32px 16px;\"><tr><td align=\"center\"><table cellpadding=\"0\" cellspacing=\"0\" border=\"0\" style=\"max-width:560px;width:100%;\"> <!-- Wordmark --> <tr><td style=\"padding:0 0 20px;text-align:center;\">  <span style=\"font-size:10px;font-weight:700;letter-spacing:0.18em;color:#a1a1aa;text-transform:uppercase;\">Miraggio Lifestyles</span> </td></tr> <!-- Card --> <tr><td style=\"background:#ffffff;border-radius:12px;border:1px solid #e4e4e7;overflow:hidden;\">  <!-- Green top bar -->  <table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\"><tr><td style=\"height:3px;background:#16a34a;\"></td></tr></table>  <!-- Hero: badge + vendor + amount -->  <table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\"><tr><td style=\"padding:28px 32px 24px;\">   <table cellpadding=\"0\" cellspacing=\"0\"><tr><td style=\"background:#dcfce7;border-radius:20px;padding:3px 12px;\">    <span style=\"font-size:10px;font-weight:700;color:#15803d;letter-spacing:0.06em;\">&#10003; FULLY APPROVED &mdash; PAYMENT REQUIRED</span>   </td></tr></table>   <div style=\"margin-top:18px;font-size:20px;font-weight:700;color:#09090b;letter-spacing:-0.01em;\">{{ $('Validate Token').item.json.vendor_name }}</div>   <div style=\"font-size:12px;color:#a1a1aa;margin-top:3px;text-transform:uppercase;letter-spacing:0.05em;\">{{ $('Validate Token').item.json.vendor_category || 'Vendor' }}</div>   <div style=\"margin-top:16px;font-size:34px;font-weight:800;color:#09090b;letter-spacing:-0.03em;\">&#8377;{{ $('Validate Token').item.json.amount }}</div>  </td></tr></table>  <!-- Divider -->  <table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\"><tr><td style=\"height:1px;background:#f4f4f5;\"></td></tr></table>  <!-- Invoice meta -->  <table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\"><tr>   <td style=\"padding:18px 32px;width:50%;border-right:1px solid #f4f4f5;\">    <div style=\"font-size:10px;font-weight:600;color:#a1a1aa;text-transform:uppercase;letter-spacing:0.08em;\">Invoice</div>    <div style=\"font-size:13px;font-weight:600;color:#09090b;margin-top:4px;font-family:'Courier New',monospace;\">{{ $('Validate Token').item.json.invoice_number }}</div>   </td>   <td style=\"padding:18px 32px;width:50%;\">    <div style=\"font-size:10px;font-weight:600;color:#a1a1aa;text-transform:uppercase;letter-spacing:0.08em;\">Approved</div>    <div style=\"font-size:13px;font-weight:600;color:#09090b;margin-top:4px;\">L1 &amp; L2 &#10003;</div>   </td>  </tr></table>  <!-- Divider -->  <table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\"><tr><td style=\"height:1px;background:#f4f4f5;\"></td></tr></table>  <!-- Bank details -->  <table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\"><tr><td style=\"padding:24px 32px;\">   <div style=\"font-size:10px;font-weight:700;color:#a1a1aa;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:12px;\">Pay To</div>   <table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" style=\"border:1px solid #f4f4f5;border-radius:8px;overflow:hidden;\">    <tr style=\"border-bottom:1px solid #f4f4f5;\">     <td style=\"padding:11px 16px;background:#fafafa;font-size:11px;color:#a1a1aa;width:38%;border-bottom:1px solid #f4f4f5;\">Account Name</td>     <td style=\"padding:11px 16px;font-size:13px;font-weight:600;color:#09090b;border-bottom:1px solid #f4f4f5;\">{{ $('Validate Token').item.json.vendor_bank_account_name || '&mdash;' }}</td>    </tr>    <tr>     <td style=\"padding:11px 16px;background:#fafafa;font-size:11px;color:#a1a1aa;border-bottom:1px solid #f4f4f5;\">Bank</td>     <td style=\"padding:11px 16px;font-size:13px;font-weight:600;color:#09090b;border-bottom:1px solid #f4f4f5;\">{{ $('Validate Token').item.json.vendor_bank_name || '&mdash;' }}</td>    </tr>    <tr>     <td style=\"padding:11px 16px;background:#fafafa;font-size:11px;color:#a1a1aa;border-bottom:1px solid #f4f4f5;\">Account No.</td>     <td style=\"padding:11px 16px;font-size:14px;font-weight:700;color:#09090b;font-family:'Courier New',monospace;letter-spacing:0.06em;border-bottom:1px solid #f4f4f5;\">{{ $('Validate Token').item.json.vendor_bank_account_no || '&mdash;' }}</td>    </tr>    <tr>     <td style=\"padding:11px 16px;background:#fafafa;font-size:11px;color:#a1a1aa;\">IFSC</td>     <td style=\"padding:11px 16px;font-size:14px;font-weight:700;color:#09090b;font-family:'Courier New',monospace;letter-spacing:0.06em;\">{{ $('Validate Token').item.json.vendor_bank_ifsc || '&mdash;' }}</td>    </tr>   </table>  </td></tr></table>  <!-- PDF button (conditional) -->  {{ $('Validate Token').item.json.bill_pdf_url ? '<table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\"><tr><td style=\"padding:0 32px 24px;\"><table cellpadding=\"0\" cellspacing=\"0\"><tr><td style=\"background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:12px 20px;\"><a href=\"' + $('Validate Token').item.json.bill_pdf_url + '\" style=\"font-size:13px;font-weight:600;color:#15803d;text-decoration:none;\">&#128206; View Original Invoice PDF &rarr;</a></td></tr></table></td></tr></table>' : '' }}  <!-- Divider -->  <table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\"><tr><td style=\"height:1px;background:#f4f4f5;\"></td></tr></table>  <!-- Footer note -->  <table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\"><tr><td style=\"padding:18px 32px;\">   <span style=\"font-size:12px;color:#a1a1aa;\">Once paid, log the UTR / cheque number and upload the receipt in the <strong style=\"color:#71717a;\">Miraggio dashboard</strong>.</span>  </td></tr></table> </td></tr> <!-- Bottom wordmark --> <tr><td style=\"padding:16px 0 0;text-align:center;\">  <span style=\"font-size:10px;color:#d4d4d8;\">Miraggio Lifestyles Pvt Ltd &middot; Internal Finance</span> </td></tr></table></td></tr></table></body></html>",
+        "additionalFields": {
+          "bodyContentType": "html"
+        }
+      },
+      "id": "f1204a69-e274-4aaf-96d9-3ffc93b2cab3",
+      "name": "Notify Finance (with bank details)",
+      "type": "n8n-nodes-base.microsoftOutlook",
+      "typeVersion": 2,
+      "position": [
+        672,
+        256
+      ],
+      "webhookId": "miraggio-finance-email",
+      "credentials": {
+        "microsoftOutlookOAuth2Api": {
+          "id": "0Ysgvtu8o0klRZE1",
+          "name": "test-1.0"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "=<!DOCTYPE html><html><head><title>Bill Approved</title><meta charset=\"utf-8\"><style>body{font-family:-apple-system,Arial,sans-serif;max-width:500px;margin:80px auto;padding:40px;text-align:center;color:#333}h1{color:#28a745}.box{background:#d4edda;border:1px solid #c3e6cb;padding:24px;border-radius:8px}</style></head><body><h1>✅ Bill Fully Approved</h1><div class=\"box\"><p>Bill <strong>{{ $('Validate Token').item.json.invoice_number }}</strong> from <strong>{{ $('Validate Token').item.json.vendor_name }}</strong> is now <strong>PENDING_PAYMENT</strong>.</p><p>The finance team has been notified with vendor bank details.</p></div></body></html>",
+        "options": {
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "text/html; charset=utf-8"
+              }
+            ]
+          }
+        }
+      },
+      "id": "708dfcd8-69a6-4fa2-844e-fd6fb8ea29eb",
+      "name": "Respond: L2 Approved",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        896,
+        256
+      ]
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "=https://ydoitzgqavfmbyrirxxe.supabase.co/rest/v1/bills?id=eq.{{ $('Validate Token').item.json.bill_id }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inlkb2l0emdxYXZmbWJ5cmlyeHhlIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NzAwNTI1NiwiZXhwIjoyMDkyNTgxMjU2fQ.nHSXgeQ28y1Y6sK7Ck3fTfRgPfwuV0XHpuMlbPxDryA"
+            },
+            {
+              "name": "Authorization",
+              "value": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inlkb2l0emdxYXZmbWJ5cmlyeHhlIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NzAwNTI1NiwiZXhwIjoyMDkyNTgxMjU2fQ.nHSXgeQ28y1Y6sK7Ck3fTfRgPfwuV0XHpuMlbPxDryA"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Prefer",
+              "value": "return=minimal"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"status\":\"REJECTED_L2\",\"l2_approver_email\":\"{{ $('Validate Token').item.json.approver_email }}\",\"l2_rejected_by\":\"{{ $('Validate Token').item.json.approver_name }}\",\"l2_rejected_at\":\"{{ $('Validate Token').item.json.approved_at }}\",\"l2_rejection_reason\":\"{{ $('Validate Token').item.json.reason }}\"}",
+        "options": {}
+      },
+      "id": "63b178e7-4a6e-4e7c-9fa3-aa660bb9b552",
+      "name": "Bill → REJECTED_L2",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        448,
+        448
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "=<!DOCTYPE html><html><head><title>L2 Rejected</title><meta charset=\"utf-8\"><style>body{font-family:-apple-system,Arial,sans-serif;max-width:500px;margin:80px auto;padding:40px;text-align:center;color:#333}h1{color:#dc3545}.box{background:#f8d7da;border:1px solid #f5c6cb;padding:24px;border-radius:8px}</style></head><body><h1>❌ Bill Rejected at L2</h1><div class=\"box\"><p>Bill <strong>{{ $('Validate Token').item.json.invoice_number }}</strong> from <strong>{{ $('Validate Token').item.json.vendor_name }}</strong> has been marked <strong>REJECTED_L2</strong>.</p><p>The vendor has been notified.</p></div></body></html>",
+        "options": {
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "text/html; charset=utf-8"
+              }
+            ]
+          }
+        }
+      },
+      "id": "f072f054-6b21-463c-abeb-f998681f3553",
+      "name": "Respond: L2 Rejected",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        672,
+        448
+      ]
+    },
+    {
+      "parameters": {
+        "toRecipients": "Deepak.singh@miraggiolife.com",
+        "subject": "=🔔 L2 Approval: {{ $json.vendor_name }} — ₹{{ $json.amount }}",
+        "bodyContent": "=<div style=\"font-family:Arial,sans-serif;max-width:600px\"><h2>L2 Approval Required</h2><p>This bill was approved at L1 by <strong>{{ $('Validate Token').first().json.approver_name }}</strong> ({{ $('Validate Token').first().json.approver_email }}) on {{ $('Validate Token').first().json.approved_at }}.</p><table style=\"width:100%;border-collapse:collapse;margin-bottom:20px\"><tr><td style=\"padding:8px;background:#f5f5f5;font-weight:bold\">Vendor</td><td style=\"padding:8px\">{{ $('Validate Token').first().json.vendor_name }}</td></tr><tr><td style=\"padding:8px;background:#f5f5f5;font-weight:bold\">Invoice #</td><td style=\"padding:8px\">{{ $('Validate Token').first().json.invoice_number || 'Not specified' }}</td></tr><tr><td style=\"padding:8px;background:#f5f5f5;font-weight:bold\">Amount</td><td style=\"padding:8px\">₹{{ $('Validate Token').first().json.amount }}</td></tr><tr><td style=\"padding:8px;background:#f5f5f5;font-weight:bold\">Category</td><td style=\"padding:8px\">{{ $('Validate Token').first().json.vendor_category || '—' }}</td></tr>{{ ($('Validate Token').first().json.anomaly_flags || []).length > 0 ? '<tr><td style=\"padding:8px;background:#fff3cd;font-weight:bold;color:#856404\">⚠️ Anomalies</td><td style=\"padding:8px;color:#856404\">' + $('Validate Token').first().json.anomaly_flags.join('<br/>') + '</td></tr>' : '' }}{{ $('Validate Token').first().json.bill_pdf_url ? '<tr><td style=\"padding:8px;background:#e8f4fd;font-weight:bold;color:#1a56db\">📎 Invoice PDF</td><td style=\"padding:8px\"><a href=\"' + $('Validate Token').first().json.bill_pdf_url + '\" style=\"color:#1a56db;font-weight:bold;text-decoration:underline;\">View Original Invoice PDF</a></td></tr>' : '' }}</table><table style=\"width:100%\"><tr><td style=\"padding:10px\"><a href=\"https://billing-app-git-main-himanshus-projects-36ad5941.vercel.app/bills/{{ $('Validate Token').first().json.bill_id }}\" style=\"background:#1a56db;color:white;padding:12px 28px;text-decoration:none;border-radius:4px;font-size:16px;font-weight:bold\">Review &amp; Approve on Dashboard</a></td></tr></table><p style=\"color:#666;font-size:12px;margin-top:20px\">You must sign in to the billing dashboard to approve or reject. The decision is recorded against your account. Approve/Reject buttons are no longer sent by email.</p></div>",
+        "additionalFields": {
+          "bodyContentType": "html"
+        }
+      },
+      "type": "n8n-nodes-base.microsoftOutlook",
+      "typeVersion": 2,
+      "position": [
+        1328,
+        -128
+      ],
+      "id": "e8226c1b-9ddb-45ce-ae17-bbd8b51d4df6",
+      "name": "Send a message",
+      "webhookId": "fac0d560-54bb-4d3b-bc44-aaef84e01d79",
+      "credentials": {
+        "microsoftOutlookOAuth2Api": {
+          "id": "0Ysgvtu8o0klRZE1",
+          "name": "test-1.0"
+        }
+      }
+    }
+  ],
+  "pinData": null,
+  "connections": {
+    "Approval Webhook": {
+      "main": [
+        [
+          {
+            "node": "Supabase — Lookup Token",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Supabase — Lookup Token": {
+      "main": [
+        [
+          {
+            "node": "Validate Token",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Token": {
+      "main": [
+        [
+          {
+            "node": "Token Valid?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Token Valid?": {
+      "main": [
+        [
+          {
+            "node": "Mark Tokens Used (both)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond: Invalid Link",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark Tokens Used (both)": {
+      "main": [
+        [
+          {
+            "node": "Route by Level + Action",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route by Level + Action": {
+      "main": [
+        [
+          {
+            "node": "Bill → PENDING_L2",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Bill → REJECTED_L1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Bill → PENDING_PAYMENT",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Bill → REJECTED_L2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Bill → PENDING_L2": {
+      "main": [
+        [
+          {
+            "node": "Send a message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Bill → REJECTED_L1": {
+      "main": [
+        [
+          {
+            "node": "Respond: L1 Rejected",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Bill → PENDING_PAYMENT": {
+      "main": [
+        [
+          {
+            "node": "Notify Finance (with bank details)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Notify Finance (with bank details)": {
+      "main": [
+        [
+          {
+            "node": "Respond: L2 Approved",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Bill → REJECTED_L2": {
+      "main": [
+        [
+          {
+            "node": "Respond: L2 Rejected",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send a message": {
+      "main": [
+        [
+          {
+            "node": "Respond: L1 Approved",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [],
+  "triggerCount": 0,
+  "updatedAt": "2026-05-27T00:00:00.000Z",
+  "versionId": "",
+  "active": false
+}

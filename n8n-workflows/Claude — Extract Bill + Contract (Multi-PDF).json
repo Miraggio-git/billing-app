@@ -1,0 +1,1704 @@
+{
+  "name": "Claude — Extract Bill + Contract (AI Agent) [Multi-PDF]",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## ⚙️ Before Activating — Replace These 3 Values\n\n**1. Gmail credential** → Select your Gmail OAuth2 credential on the Gmail Trigger node and the Send L1 Email node.\n\n**2. Supabase Service Key** → Find + Replace `YOUR_SUPABASE_SERVICE_KEY` in all HTTP Request nodes that call Supabase.\n\n**3. Anthropic API Key** → Find + Replace `YOUR_ANTHROPIC_API_KEY` in the two Claude nodes.\n\n---\nSupabase URL: `https://ydoitzgqavfmbyrirxxe.supabase.co`",
+        "height": 316,
+        "width": 532,
+        "color": 4
+      },
+      "id": "06598552-c90c-4f81-ad42-208429abc35d",
+      "name": "📋 SETUP INSTRUCTIONS",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2496,
+        1888
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "cond-attachment",
+              "leftValue": "={{ $json.hasAttachment }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "632238bc-387c-4388-829d-16cc11033538",
+      "name": "Has Attachment?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        2464,
+        2656
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "057c6f6c-2f9f-4fc2-bbf9-25240a2f6f7b",
+      "name": "No Attachment — Skip",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        2688,
+        2752
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "pdf",
+        "binaryPropertyName": "={{ $json.pdfAttachmentKey }}",
+        "options": {}
+      },
+      "id": "91f9ae19-1ed7-4d94-b937-31994d834e24",
+      "name": "Extract PDF Text",
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1,
+      "position": [
+        3136,
+        2560
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "cond-vendor",
+              "leftValue": "={{ $json.vendorFound }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "c8aee4b0-e672-4beb-9b8b-b980fe19eee2",
+      "name": "Known Vendor?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        4032,
+        2560
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "946b8f85-8c1c-445a-97e5-612733c2771b",
+      "name": "Unknown Vendor — Skip",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        4256,
+        2656
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "1",
+              "name": "classification",
+              "value": "={{ $json.output.trim().toUpperCase().replace(/[^A-Z]/g, '') }}",
+              "type": "string"
+            },
+            {
+              "id": "2",
+              "name": "vendorId",
+              "value": "={{ $('Check Vendor Exists1').item.json.vendor.id }}",
+              "type": "string"
+            },
+            {
+              "id": "3",
+              "name": "vendorName",
+              "value": "={{ $('Check Vendor Exists1').item.json.vendor.name }}",
+              "type": "string"
+            },
+            {
+              "id": "4",
+              "name": "vendorEmail",
+              "value": "={{ $('Check Vendor Exists1').item.json.vendor.email }}",
+              "type": "string"
+            },
+            {
+              "id": "5",
+              "name": "pdfText",
+              "value": "={{ $('Check Vendor Exists1').item.json.pdfText }}",
+              "type": "string"
+            },
+            {
+              "id": "6",
+              "name": "subject",
+              "value": "={{ $('Check Vendor Exists1').item.json.subject }}",
+              "type": "string"
+            },
+            {
+              "id": "7",
+              "name": "emailReceivedAt",
+              "value": "={{ $('Check Vendor Exists1').item.json.emailReceivedAt }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "4fcc3bc5-7c20-418b-aac8-6bcca9cbb9bd",
+      "name": "Parse Classification",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        4832,
+        2464
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Get pdfAttachmentKey for THIS pdf (item-linked through the chain)\nlet pdfAttachmentKey = null;\ntry { pdfAttachmentKey = $('Merge Email + PDF Data').item.json.pdfAttachmentKey; } catch(e) {}\n// Vendor id via item linking\nlet vendorId = null;\ntry { vendorId = $('Check Vendor Exists1').item.json.vendor.id; } catch(e) {}\n\n// Message id (same for all PDFs in this email)\nlet gmailId = null;\ntry { gmailId = $('Merge Email + PDF Data').item.json.gmailMessageId; } catch(e) {\n  try { gmailId = $('Microsoft Outlook Trigger').first().json.id || null; } catch(e2) {}\n}\n\nconst raw   = $input.item.json.output ?? '';\nconst clean = raw.replace(/```json\\n?/g, '').replace(/```\\n?/g, '').trim();\n\nlet extracted;\ntry {\n  extracted = JSON.parse(clean);\n} catch(e) {\n  extracted = { invoice_number: null, amount: null, taxable_amount: null,\n    billing_period_start: null, billing_period_end: null,\n    line_items: [], anomaly_flags: ['JSON parse failed — manual review required'] };\n}\n\nconst lineItems        = extracted.line_items ?? [];\nconst calculatedAmount = lineItems.reduce((s, i) => s + (Number(i.total) || 0), 0);\nconst amount           = extracted.amount ?? extracted.total_amount ?? (calculatedAmount > 0 ? calculatedAmount : 0);\nconst taxableAmount    = extracted.taxable_amount ?? extracted.amount ?? (calculatedAmount > 0 ? calculatedAmount : 0);\n\nreturn {\n  json: {\n    vendor_id:             vendorId,\n    invoice_number:        extracted.invoice_number,\n    amount:                amount,\n    taxable_amount:        taxableAmount,\n    cgst_amount:           extracted.cgst_amount  ?? 0,\n    sgst_amount:           extracted.sgst_amount  ?? 0,\n    igst_amount:           extracted.igst_amount  ?? 0,\n    billing_period_start:  extracted.billing_period_start,\n    billing_period_end:    extracted.billing_period_end,\n    line_items:            JSON.parse(JSON.stringify(lineItems)),\n    anomaly_flags:         JSON.parse(JSON.stringify(extracted.anomaly_flags ?? [])),\n    status:                'PENDING_L1',\n    pdf_attachment_key:    pdfAttachmentKey,\n    gmail_message_id:      gmailId\n  }\n};",
+        "mode": "runOnceForEachItem"
+      },
+      "id": "4e19738d-d839-437e-b62c-f4f28a2d235b",
+      "name": "Prepare Bill for Insert",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        5632,
+        2464
+      ],
+      "alwaysOutputData": false
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://ydoitzgqavfmbyrirxxe.supabase.co/rest/v1/bills?select=*",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inlkb2l0emdxYXZmbWJ5cmlyeHhlIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NzAwNTI1NiwiZXhwIjoyMDkyNTgxMjU2fQ.nHSXgeQ28y1Y6sK7Ck3fTfRgPfwuV0XHpuMlbPxDryA"
+            },
+            {
+              "name": "Authorization",
+              "value": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inlkb2l0emdxYXZmbWJ5cmlyeHhlIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NzAwNTI1NiwiZXhwIjoyMDkyNTgxMjU2fQ.nHSXgeQ28y1Y6sK7Ck3fTfRgPfwuV0XHpuMlbPxDryA"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Prefer",
+              "value": "return=representation"
+            },
+            {
+              "name": "Accept-Encoding    ",
+              "value": "identity"
+            },
+            {
+              "name": "Prefer",
+              "value": "resolution=ignore-duplicates"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"vendor_id\":\"{{$json.vendor_id}}\",\"invoice_number\":\"{{$json.invoice_number}}\",\"amount\":{{$json.amount}},\"taxable_amount\":{{$json.taxable_amount}},\"cgst_amount\":{{$json.cgst_amount}},\"sgst_amount\":{{$json.sgst_amount}},\"igst_amount\":{{$json.igst_amount}},\"billing_period_start\":\"{{$json.billing_period_start}}\",\"billing_period_end\":\"{{$json.billing_period_end}}\",\"line_items\":{{JSON.stringify($json.line_items)}},\"anomaly_flags\":{{JSON.stringify($json.anomaly_flags)}},\"status\":\"{{$json.status}}\"}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "676d9848-8727-4509-9a70-7d47dafe7c0f",
+      "name": "Supabase — Insert Bill",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1344,
+        1632
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "1",
+              "name": "senderEmail",
+              "value": "={{ $json.from.emailAddress.address }}",
+              "type": "string"
+            },
+            {
+              "id": "2",
+              "name": "subject",
+              "value": "={{ $json.subject || '(no subject)' }}",
+              "type": "string"
+            },
+            {
+              "id": "3",
+              "name": "senderName",
+              "value": "={{ $json.from.emailAddress.name }}",
+              "type": "string"
+            },
+            {
+              "id": "4",
+              "name": "emailReceivedAt",
+              "value": "={{ $json.date || $now }}",
+              "type": "string"
+            },
+            {
+              "id": "5",
+              "name": "hasAttachment",
+              "value": "={{ Object.keys($binary || {}).filter(k => k.startsWith('attachment')).length > 0 }}",
+              "type": "boolean"
+            },
+            {
+              "id": "6",
+              "name": "outlook_message_id",
+              "value": "={{ $json.id }}",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {
+          "stripBinary": false
+        }
+      },
+      "id": "a5f5f861-c061-4c7c-946b-0b3fbc49ef51",
+      "name": "Extract Email Metadata2",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1568,
+        2752
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=https://ydoitzgqavfmbyrirxxe.supabase.co/rest/v1/vendors?email=eq.{{ $('Restore Email Data').item.json.senderEmail }}&select=id,name,email,status,bank_name,bank_account_no,bank_ifsc,bank_account_name",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inlkb2l0emdxYXZmbWJ5cmlyeHhlIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NzAwNTI1NiwiZXhwIjoyMDkyNTgxMjU2fQ.nHSXgeQ28y1Y6sK7Ck3fTfRgPfwuV0XHpuMlbPxDryA"
+            },
+            {
+              "name": "Authorization",
+              "value": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inlkb2l0emdxYXZmbWJ5cmlyeHhlIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NzAwNTI1NiwiZXhwIjoyMDkyNTgxMjU2fQ.nHSXgeQ28y1Y6sK7Ck3fTfRgPfwuV0XHpuMlbPxDryA"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "6e3d53d7-62e0-4d4b-bc2f-12de32672577",
+      "name": "Supabase — Lookup Vendor1",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3584,
+        2560
+      ],
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const vendorResult = $input.item.json;\n\nlet vendorFound = false;\nlet vendor = null;\nif (vendorResult && vendorResult.id) {\n  vendorFound = true;\n  vendor = vendorResult;\n}\n\n// Email metadata is the same for every PDF in this email\nconst emailData = $('Microsoft Outlook Trigger').first().json;\n\nconst senderEmail = emailData.from?.emailAddress?.address ||\n                    emailData.sender?.emailAddress?.address || '';\nconst senderName  = emailData.from?.emailAddress?.name ||\n                    emailData.sender?.emailAddress?.name || '';\nconst subject          = emailData.subject || '(no subject)';\nconst emailReceivedAt  = emailData.receivedDateTime || emailData.date || new Date().toISOString();\nconst messageId        = emailData.id || emailData.internetMessageId || '';\n\n// Per-PDF text — item-linked through the chain\nconst mergedData = $('Merge Email + PDF Data').item.json;\nconst pdfText    = mergedData.pdfText  || '';\nconst pdfPages   = mergedData.pdfPages || 0;\n\nreturn {\n  json: { vendorFound, vendor, senderEmail, senderName, subject,\n          emailReceivedAt, messageId, pdfText, pdfPages }\n};",
+        "mode": "runOnceForEachItem"
+      },
+      "id": "170eb475-584d-481c-ab30-e854422759a5",
+      "name": "Check Vendor Exists1",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3808,
+        2560
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const item = $input.item.json;\n\nconst body = JSON.stringify({\n  model: 'claude-sonnet-4-6',\n  max_tokens: 10,\n  stream: false,\n  system: 'You are a document classifier. Reply with ONE word only: CONTRACT, BILL, or OTHER.',\n  messages: [{\n    role: 'user',\n    content: 'Email subject: ' + (item.subject || '') +\n             '\\n\\nDocument text:\\n' + (item.pdfText || '').substring(0, 2000) +\n             '\\n\\nONE word only:'\n  }]\n});\n\nreturn { json: { ...item, claudeBody: body } };",
+        "mode": "runOnceForEachItem"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4256,
+        2464
+      ],
+      "id": "a3c63a2b-a148-4689-a2bc-5c2ba50a1462",
+      "name": "Code in JavaScript"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Email subject: {{ $json.subject }}\n\nDocument text (whole document):\n{{ ($json.pdfText || '').substring(0, 2000) }}\n\nClassify this document. Reply with ONE word only: CONTRACT, BILL, or OTHER.",
+        "hasOutputParser": true,
+        "options": {}
+      },
+      "id": "9a2361a9-e80f-4e21-af0a-34e9fe39cc6e",
+      "name": "Classify Document",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.7,
+      "position": [
+        4480,
+        2464
+      ]
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "claude-haiku-4-5-20251001",
+          "mode": "list",
+          "cachedResultName": "Claude Haiku 4.5"
+        },
+        "options": {}
+      },
+      "id": "74e9eced-311c-4889-89fa-9d365c8df82a",
+      "name": "Anthropic Chat Model1",
+      "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
+      "typeVersion": 1.3,
+      "position": [
+        4560,
+        2688
+      ],
+      "credentials": {
+        "anthropicApi": {
+          "id": "QseHAmDeIGUnJnPv",
+          "name": "Anthropic account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "id": "rule-bill",
+                    "leftValue": "={{ $json.classification }}",
+                    "rightValue": "BILL",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "BILL"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "id": "rule-contract",
+                    "leftValue": "={{ $json.classification }}",
+                    "rightValue": "CONTRACT",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "CONTRACT"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "id": "rule-other",
+                    "leftValue": "={{ $json.classification }}",
+                    "rightValue": "OTHER",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "OTHER"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra"
+        }
+      },
+      "id": "30d530a3-c8cb-43f6-92ab-9d9957956da3",
+      "name": "Route by Document Type1",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [
+        5056,
+        2432
+      ]
+    },
+    {
+      "parameters": {
+        "agent": "conversationalAgent",
+        "promptType": "define",
+        "text": "=Extract structured data from this vendor invoice.\n\nVendor: {{ $json.vendorName }}\n\nInvoice text:\n{{ ($json.pdfText || '').substring(0, 4000) }}\n\nReturn ONLY this JSON, nothing else. \"amount\" should be the Grand Total, \"taxable_amount\" is the base amount before tax. If a tax is not present, return 0.\n{\n  \"invoice_number\": \"string or null\",\n  \"amount\": number,\n  \"taxable_amount\": number,\n  \"cgst_amount\": number,\n  \"sgst_amount\": number,\n  \"igst_amount\": number,\n  \"billing_period_start\": \"YYYY-MM-DD or null\",\n  \"billing_period_end\": \"YYYY-MM-DD or null\",\n  \"line_items\": [{\"description\": \"\", \"quantity\": 1, \"unit_price\": 0, \"total\": 0}],\n  \"anomaly_flags\": []\n}",
+        "hasOutputParser": true,
+        "options": {
+          "systemMessage": "You are an accounts payable data extractor. Extract invoice fields and return ONLY valid JSON with no explanation, no markdown, no code fences. For anomaly_flags include any of: 'Invoice number missing', 'Amount appears unusually high', 'Billing period dates unclear', 'Line items do not add up to total'."
+        }
+      },
+      "id": "afc16ecf-cf08-4198-a9ca-c26fd81f233a",
+      "name": "Extract Bill Fields",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.7,
+      "position": [
+        5280,
+        2464
+      ]
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "claude-sonnet-4-6",
+          "mode": "list",
+          "cachedResultName": "Claude Sonnet 4.6"
+        },
+        "options": {}
+      },
+      "id": "b2dd6866-1399-4175-9ef1-6639f15fb5ba",
+      "name": "Anthropic Chat Model (Bill)",
+      "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
+      "typeVersion": 1.3,
+      "position": [
+        5360,
+        2688
+      ],
+      "credentials": {
+        "anthropicApi": {
+          "id": "QseHAmDeIGUnJnPv",
+          "name": "Anthropic account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "cond-dedup",
+              "leftValue": "={{ Object.keys($json).length === 0 || $json.length === 0 }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "f2a00793-55e1-4c59-8a09-daf654b84ca1",
+      "name": "Is New Bill?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        2016,
+        2752
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "60bff4ff-f646-4e81-b548-9a496d7d8876",
+      "name": "Already Processed — Skip",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        2240,
+        2848
+      ],
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "url": "=https://ydoitzgqavfmbyrirxxe.supabase.co/rest/v1/bills?outlook_message_id=eq.{{ $json.outlook_message_id || 'NO_ID_' + Date.now() }}&select=id",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inlkb2l0emdxYXZmbWJ5cmlyeHhlIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NzAwNTI1NiwiZXhwIjoyMDkyNTgxMjU2fQ.nHSXgeQ28y1Y6sK7Ck3fTfRgPfwuV0XHpuMlbPxDryA"
+            },
+            {
+              "name": "Authorization",
+              "value": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inlkb2l0emdxYXZmbWJ5cmlyeHhlIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NzAwNTI1NiwiZXhwIjoyMDkyNTgxMjU2fQ.nHSXgeQ28y1Y6sK7Ck3fTfRgPfwuV0XHpuMlbPxDryA"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "3c314c18-1b61-4c47-92cc-13b15a9597fd",
+      "name": "Supabase — Check Duplicates2",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1792,
+        2752
+      ],
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const originalEmail = $('Extract Email Metadata2').first();\n\nreturn [{\n  json: originalEmail.json,\n  binary: originalEmail.binary\n}];"
+      },
+      "id": "ff835ba5-461c-4a4d-b226-8374c657eff8",
+      "name": "Restore Email Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2240,
+        2656
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "function generateToken() {\n  let t = '';\n  const chars = '0123456789abcdef';\n  for (let i = 0; i < 64; i++) t += chars[Math.floor(Math.random() * 16)];\n  return t;\n}\n\n// Item-linked bill ID for this specific PDF's bill\nconst billId = $('Supabase — Insert Bill1').item.json.id;\nconst baseUrl = 'https://mirragiohimanshu.app.n8n.cloud/webhook/approval';\n\nconst approveToken = generateToken();\nconst rejectToken  = generateToken();\n\nreturn {\n  json: {\n    bill_id:      billId,\n    approveToken: approveToken,\n    rejectToken:  rejectToken,\n    approveLink:  baseUrl + '?token=' + approveToken,\n    rejectLink:   baseUrl + '?token=' + rejectToken\n  }\n};",
+        "mode": "runOnceForEachItem"
+      },
+      "id": "fa7966c9-3e49-4400-b7ca-054ee22498d4",
+      "name": "Generate Approval Token1",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        6752,
+        2176
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://ydoitzgqavfmbyrirxxe.supabase.co/rest/v1/approval_tokens",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inlkb2l0emdxYXZmbWJ5cmlyeHhlIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NzAwNTI1NiwiZXhwIjoyMDkyNTgxMjU2fQ.nHSXgeQ28y1Y6sK7Ck3fTfRgPfwuV0XHpuMlbPxDryA"
+            },
+            {
+              "name": "Authorization",
+              "value": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inlkb2l0emdxYXZmbWJ5cmlyeHhlIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NzAwNTI1NiwiZXhwIjoyMDkyNTgxMjU2fQ.nHSXgeQ28y1Y6sK7Ck3fTfRgPfwuV0XHpuMlbPxDryA"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Prefer",
+              "value": "return=representation"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "=[{\n  \"bill_id\": \"{{$json.bill_id}}\",\n  \"token\": \"{{$json.approveToken}}\",\n  \"level\": \"L1\",\n  \"action\": \"APPROVE\"\n}, {\n  \"bill_id\": \"{{$json.bill_id}}\",\n  \"token\": \"{{$json.rejectToken}}\",\n  \"level\": \"L1\",\n  \"action\": \"REJECT\"\n}]",
+        "options": {}
+      },
+      "id": "0e46f341-cb66-448f-b082-0aa7e0d25f0f",
+      "name": "Supabase — Insert Approval Tokens1",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        6976,
+        2272
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Single dedup check result for this invoice\nconst dupResult = $input.item.json;\n\nlet isDuplicate    = false;\nlet existingBillId = null;\n\nif (Array.isArray(dupResult) && dupResult.length > 0) {\n  isDuplicate    = true;\n  existingBillId = dupResult[0].id;\n} else if (dupResult && dupResult.id) {\n  isDuplicate    = true;\n  existingBillId = dupResult.id;\n}\n\nconst billData = $('Prepare Bill for Insert').item.json;\n\nreturn {\n  json: { ...billData, isDuplicate, existingBillId }\n};",
+        "mode": "runOnceForEachItem"
+      },
+      "id": "f953df38-b169-4338-acb5-b0e60e44e2eb",
+      "name": "Merge Dedup Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        6080,
+        2464
+      ],
+      "notes": "Merges the Supabase check result with bill data so the IF node has everything it needs."
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "2b2bb632-e9c1-4a54-8324-460ae5500f0d",
+              "leftValue": "={{ $json.isDuplicate }}",
+              "rightValue": false,
+              "operator": {
+                "type": "boolean",
+                "operation": "false",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "7de86811-1587-4809-9c64-f1294cd3f1de",
+      "name": "Is Duplicate Invoice?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        6304,
+        2464
+      ],
+      "notes": "TRUE (output 1) = not a duplicate → proceeds to Supabase Insert Bill. FALSE (output 2) = duplicate → goes to skip node."
+    },
+    {
+      "parameters": {},
+      "id": "47b83266-9cbf-4625-bf62-1541afe5e37f",
+      "name": "Duplicate Invoice — Skip",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        6528,
+        2560
+      ],
+      "notes": "Dead end. Workflow silently stops here. No insert, no approval email."
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "cond-duplicate-check",
+              "leftValue": "={{ ($json.errorDescription ?? $json.message ?? $json.error ?? '').toString() }}",
+              "rightValue": "unique_vendor_invoice",
+              "operator": {
+                "type": "string",
+                "operation": "contains"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "59d6d165-e0c7-4a6d-97da-975a79c9b89b",
+      "name": "Is Duplicate Invoice Error?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        6752,
+        2560
+      ],
+      "notes": "Receives the error output (port 2) of Insert Bill. TRUE = duplicate invoice, silently skip. FALSE = a real unexpected error."
+    },
+    {
+      "parameters": {},
+      "id": "02304f9b-7cfa-4946-b235-7ba1074d9106",
+      "name": "Unexpected DB Error — Stop",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        6976,
+        2656
+      ],
+      "notes": "A real DB error that is NOT a duplicate. Check execution logs. Optionally wire to a Slack/email alert."
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://ydoitzgqavfmbyrirxxe.supabase.co/rest/v1/bills?select=*",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inlkb2l0emdxYXZmbWJ5cmlyeHhlIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NzAwNTI1NiwiZXhwIjoyMDkyNTgxMjU2fQ.nHSXgeQ28y1Y6sK7Ck3fTfRgPfwuV0XHpuMlbPxDryA"
+            },
+            {
+              "name": "Authorization",
+              "value": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inlkb2l0emdxYXZmbWJ5cmlyeHhlIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NzAwNTI1NiwiZXhwIjoyMDkyNTgxMjU2fQ.nHSXgeQ28y1Y6sK7Ck3fTfRgPfwuV0XHpuMlbPxDryA"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Prefer",
+              "value": "return=representation"
+            },
+            {
+              "name": "Accept-Encoding",
+              "value": "identity"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n  vendor_id: $json.vendor_id,\n  gmail_message_id: $json.gmail_message_id,\n  invoice_number: $json.invoice_number,\n  amount: $json.amount,\n  taxable_amount: $json.taxable_amount,\n  cgst_amount: $json.cgst_amount,\n  sgst_amount: $json.sgst_amount,\n  igst_amount: $json.igst_amount,\n  billing_period_start: $json.billing_period_start,\n  billing_period_end: $json.billing_period_end,\n  line_items: $json.line_items,\n  status: $json.status\n}) }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "898bfc9b-b2f0-4c7f-8757-9d4fed8b9005",
+      "name": "Supabase — Insert Bill1",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        6528,
+        2368
+      ],
+      "onError": "continueErrorOutput",
+      "notes": "Continue On Fail is ON. Output 1 = success, Output 2 = error (caught by IF node below)."
+    },
+    {
+      "parameters": {},
+      "id": "eb96e029-85d5-4c78-a304-40f706593472",
+      "name": "Duplicate Invoice — Skip1",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        6976,
+        2464
+      ],
+      "notes": "Dead end. Same invoice sent twice. Nothing inserted, no approval email sent."
+    },
+    {
+      "parameters": {
+        "pollTimes": {
+          "item": [
+            {
+              "mode": "everyMinute"
+            }
+          ]
+        },
+        "output": "raw",
+        "filters": {},
+        "options": {
+          "attachmentsPrefix": "attachment_",
+          "downloadAttachments": true
+        }
+      },
+      "type": "n8n-nodes-base.microsoftOutlookTrigger",
+      "typeVersion": 1,
+      "position": [
+        1344,
+        2752
+      ],
+      "id": "13b3efdb-c9dd-4192-b285-96994b7bf34a",
+      "name": "Microsoft Outlook Trigger",
+      "credentials": {
+        "microsoftOutlookOAuth2Api": {
+          "id": "0Ysgvtu8o0klRZE1",
+          "name": "test-1.0"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "toRecipients": "mandeep@miraggiolife.com",
+        "subject": "=🔔 Approval Required: Bill from {{ $if($('Check Vendor Exists1').isExecuted, $('Check Vendor Exists1').first().json.senderName, 'Vendor') }} — ₹{{ $if($('Prepare Bill for Insert').isExecuted, $('Prepare Bill for Insert').first().json.amount, '0') }}",
+        "bodyContent": "==<!DOCTYPE html>\n<html xmlns=\"http://www.w3.org/1999/xhtml\" xmlns:v=\"urn:schemas-microsoft-com:vml\" xmlns:o=\"urn:schemas-microsoft-com:office:office\">\n<head>\n<meta charset=\"UTF-8\" />\n<meta http-equiv=\"X-UA-Compatible\" content=\"IE=edge\" />\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\" />\n<title>Vendor Bill Approval</title>\n</head>\n<body width=\"100%\" style=\"margin: 0; padding: 0 !important; mso-line-height-rule: exactly; background-color: #f9f9f9;\">\n<table role=\"presentation\" cellspacing=\"0\" cellpadding=\"0\" border=\"0\" width=\"100%\" style=\"width: 100%;\">\n<tr>\n<td style=\"padding: 20px;\">\n<table role=\"presentation\" cellspacing=\"0\" cellpadding=\"0\" border=\"0\" width=\"100%\" style=\"max-width: 600px; margin: 0 auto; background-color: #ffffff; border: 1px solid #e0e0e0;\">\n<tr>\n<td style=\"padding: 20px; background-color: #f5f5f5; border-bottom: 1px solid #ddd;\">\n<h2 style=\"margin: 0; color: #333; font-size: 18px; font-weight: bold; font-family: Arial, sans-serif; mso-line-height-rule: exactly; line-height: 22px;\">Vendor Bill Approval Required</h2>\n</td>\n</tr>\n<tr>\n<td style=\"padding: 20px;\">\n<table role=\"presentation\" cellspacing=\"0\" cellpadding=\"0\" border=\"0\" width=\"100%\" style=\"margin-bottom: 15px;\">\n<tr>\n<td style=\"padding: 10px; background-color: #f5f5f5; font-weight: bold; width: 140px; border: 1px solid #ddd; font-family: Arial, sans-serif; font-size: 13px; color: #333; mso-line-height-rule: exactly; line-height: 16px;\">Vendor</td>\n<td style=\"padding: 10px; border: 1px solid #ddd; font-family: Arial, sans-serif; font-size: 13px; color: #555; mso-line-height-rule: exactly; line-height: 16px;\">{{ $('Check Vendor Exists1').first().json.senderName }}</td>\n</tr>\n</table>\n<table role=\"presentation\" cellspacing=\"0\" cellpadding=\"0\" border=\"0\" width=\"100%\" style=\"margin-bottom: 15px;\">\n<tr>\n<td style=\"padding: 10px; background-color: #f5f5f5; font-weight: bold; width: 140px; border: 1px solid #ddd; font-family: Arial, sans-serif; font-size: 13px; color: #333; mso-line-height-rule: exactly; line-height: 16px;\">Invoice #</td>\n<td style=\"padding: 10px; border: 1px solid #ddd; font-family: Arial, sans-serif; font-size: 13px; color: #555; mso-line-height-rule: exactly; line-height: 16px;\">{{ $('Prepare Bill for Insert').first().json.invoice_number }}</td>\n</tr>\n</table>\n<table role=\"presentation\" cellspacing=\"0\" cellpadding=\"0\" border=\"0\" width=\"100%\" style=\"margin-bottom: 15px;\">\n<tr>\n<td style=\"padding: 10px; background-color: #f5f5f5; font-weight: bold; width: 140px; border: 1px solid #ddd; font-family: Arial, sans-serif; font-size: 13px; color: #333; mso-line-height-rule: exactly; line-height: 16px;\">Amount</td>\n<td style=\"padding: 10px; border: 1px solid #ddd; font-family: Arial, sans-serif; font-size: 13px; color: #555; mso-line-height-rule: exactly; line-height: 16px;\">₹{{ $('Prepare Bill for Insert').first().json.amount }}</td>\n</tr>\n</table>\n<table role=\"presentation\" cellspacing=\"0\" cellpadding=\"0\" border=\"0\" width=\"100%\" style=\"margin-bottom: 15px;\"><tr><td style=\"padding: 10px; background-color: #f5f5f5; font-weight: bold; width: 140px; border: 1px solid #ddd; font-family: Arial, sans-serif; font-size: 13px; color: #333; mso-line-height-rule: exactly; line-height: 16px;\">Category</td><td style=\"padding: 10px; border: 1px solid #ddd; font-family: Arial, sans-serif; font-size: 13px; color: #555; mso-line-height-rule: exactly; line-height: 16px;\">{{ $('Fetch Agreement').first().json.category || '—' }}</td></tr></table>\n{{ $('Set Bill PDF URL').first().json.bill_pdf_url ? '<table role=\"presentation\" cellspacing=\"0\" cellpadding=\"0\" border=\"0\" width=\"100%\" style=\"margin-bottom: 15px;\"><tr><td style=\"padding: 10px; background-color: #e8f4fd; font-weight: bold; width: 140px; border: 1px solid #90cdf4; font-family: Arial, sans-serif; font-size: 13px; color: #1a56db; mso-line-height-rule: exactly; line-height: 16px;\">📎 Invoice PDF</td><td style=\"padding: 10px; border: 1px solid #90cdf4; font-family: Arial, sans-serif; font-size: 13px;\"><a href=\"' + $('Set Bill PDF URL').first().json.bill_pdf_url + '\" style=\"color: #1a56db; font-weight: bold; text-decoration: underline;\">View Original Invoice PDF</a></td></tr></table>' : '' }}\n</td>\n</tr>\n<tr>\n<td style=\"padding: 20px; border-top: 1px solid #ddd;\">\n<table role=\"presentation\" cellspacing=\"0\" cellpadding=\"0\" border=\"0\" width=\"100%;\">\n<tr>\n<td style=\"padding: 0 10px 0 0; width: 50%;\">\n<table role=\"presentation\" cellspacing=\"0\" cellpadding=\"0\" border=\"0\" width=\"100%\" style=\"background-color: #28a745;\">\n<tr>\n<td style=\"padding: 12px 20px; text-align: center; font-family: Arial, sans-serif; font-size: 14px; font-weight: bold; mso-line-height-rule: exactly; line-height: 17px;\">\n<a href=\"{{ $('Generate Approval Token1').first().json.approveLink }}\" style=\"color: #ffffff; text-decoration: none; display: inline-block; font-family: Arial, sans-serif; font-size: 14px; font-weight: bold;\">✅ APPROVE</a>\n</td>\n</tr>\n</table>\n</td>\n<td style=\"padding: 0 0 0 10px; width: 50%;\">\n<table role=\"presentation\" cellspacing=\"0\" cellpadding=\"0\" border=\"0\" width=\"100%\" style=\"background-color: #dc3545;\">\n<tr>\n<td style=\"padding: 12px 20px; text-align: center; font-family: Arial, sans-serif; font-size: 14px; font-weight: bold; mso-line-height-rule: exactly; line-height: 17px;\">\n<a href=\"{{ $('Generate Approval Token1').first().json.rejectLink }}\" style=\"color: #ffffff; text-decoration: none; display: inline-block; font-family: Arial, sans-serif; font-size: 14px; font-weight: bold;\">❌ REJECT</a>\n</td>\n</tr>\n</table>\n</td>\n</tr>\n</table>\n</td>\n</tr>\n<tr>\n<td style=\"padding: 20px; border-top: 1px solid #ddd; background-color: #f9f9f9;\">\n<p style=\"margin: 0; color: #999; font-size: 11px; font-family: Arial, sans-serif; mso-line-height-rule: exactly; line-height: 14px;\">This approval link expires in 48 hours. Do not forward this email.</p>\n</td>\n</tr>\n</table>\n</td>\n</tr>\n</table>\n</body>\n</html>",
+        "additionalFields": {
+          "bodyContentType": "html"
+        }
+      },
+      "type": "n8n-nodes-base.microsoftOutlook",
+      "typeVersion": 2,
+      "position": [
+        6976,
+        2080
+      ],
+      "id": "2e590cae-6060-48fb-946a-7e27e738473b",
+      "name": "Send a message",
+      "webhookId": "f97394a4-3924-44b1-a1c7-488047491470",
+      "credentials": {
+        "microsoftOutlookOAuth2Api": {
+          "id": "0Ysgvtu8o0klRZE1",
+          "name": "test-1.0"
+        }
+      },
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// Emit one item per PDF found in this email — no more silent drop of extras.\nconst binary      = $input.first().binary || {};\nconst jsonData    = $input.first().json;\nconst binaryKeys  = Object.keys(binary);\n\nconst pdfItems = [];\nfor (const key of binaryKeys) {\n  const b = binary[key];\n  const isPdf =\n    b.mimeType === 'application/pdf' ||\n    b.fileName?.toLowerCase().endsWith('.pdf') ||\n    (b.mimeType === 'application/octet-stream' && b.fileName?.toLowerCase().endsWith('.pdf'));\n  if (isPdf) {\n    pdfItems.push({\n      json: {\n        ...jsonData,\n        pdfAttachmentKey: key,\n        pdfFileName: b.fileName,\n        noPdfFound: false,\n        allAttachmentKeys: binaryKeys,\n        totalAttachments: binaryKeys.length\n      },\n      binary: binary\n    });\n  }\n}\n\nif (pdfItems.length === 0) {\n  return [{\n    json: { ...jsonData, pdfAttachmentKey: null, noPdfFound: true,\n            allAttachmentKeys: binaryKeys, totalAttachments: binaryKeys.length },\n    binary: binary\n  }];\n}\n\nreturn pdfItems;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2688,
+        2560
+      ],
+      "id": "4f4ff9fa-f236-48f3-bb17-069eeee42b29",
+      "name": "Collect All PDFs"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "5ba55aa9-e2d2-4d19-b002-c748ee489acb",
+              "leftValue": "={{ $json.noPdfFound }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "false",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        2912,
+        2560
+      ],
+      "id": "13f433f2-ddaf-4b8b-be7f-3d77b9ac9a32",
+      "name": "PDF Found?"
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{\n  json: {\n    vendorFound: $json.vendorFound,\n    vendor: $json.vendor,\n    senderEmail: $json.senderEmail,\n    message: \"DEBUG: Check if vendor was found above\"\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1344,
+        1856
+      ],
+      "id": "4c9241c6-bfee-479a-8bfb-12b8fc93b678",
+      "name": "Code in JavaScript2"
+    },
+    {
+      "parameters": {
+        "url": "=https://ydoitzgqavfmbyrirxxe.supabase.co/rest/v1/bills?vendor_id=eq.{{ $json.vendor_id }}&invoice_number=eq.{{ $json.invoice_number }}&select=id",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inlkb2l0emdxYXZmbWJ5cmlyeHhlIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NzAwNTI1NiwiZXhwIjoyMDkyNTgxMjU2fQ.nHSXgeQ28y1Y6sK7Ck3fTfRgPfwuV0XHpuMlbPxDryA"
+            },
+            {
+              "name": "Authorization",
+              "value": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inlkb2l0emdxYXZmbWJ5cmlyeHhlIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NzAwNTI1NiwiZXhwIjoyMDkyNTgxMjU2fQ.nHSXgeQ28y1Y6sK7Ck3fTfRgPfwuV0XHpuMlbPxDryA"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "cdf21839-1f6a-4ffe-b066-0db72269e39c",
+      "name": "Supabase — Check Invoice Exists",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        5856,
+        2368
+      ],
+      "alwaysOutputData": true,
+      "notes": "Stage 2 dedup: checks vendor_id + invoice_number before inserting. Placed AFTER Prepare Bill for Insert, BEFORE Supabase — Insert Bill."
+    },
+    {
+      "parameters": {
+        "url": "=https://ydoitzgqavfmbyrirxxe.supabase.co/rest/v1/bills?vendor_id=eq.{{ $json.vendor_id }}&invoice_number=eq.{{ $json.invoice_number }}&select=id",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inlkb2l0emdxYXZmbWJ5cmlyeHhlIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NzAwNTI1NiwiZXhwIjoyMDkyNTgxMjU2fQ.nHSXgeQ28y1Y6sK7Ck3fTfRgPfwuV0XHpuMlbPxDryA"
+            },
+            {
+              "name": "Authorization",
+              "value": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inlkb2l0emdxYXZmbWJ5cmlyeHhlIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NzAwNTI1NiwiZXhwIjoyMDkyNTgxMjU2fQ.nHSXgeQ28y1Y6sK7Ck3fTfRgPfwuV0XHpuMlbPxDryA"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        5856,
+        2560
+      ],
+      "id": "2ed6f73f-ff23-4fca-8db0-de77fdb82e15",
+      "name": "Check Vendor Invoice Duplicate",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const pdfData   = $input.item.json;\nconst emailData = $('Collect All PDFs').item.json;\n\nreturn {\n  json: {\n    senderEmail:      emailData.senderEmail,\n    senderName:       emailData.senderName,\n    subject:          emailData.subject,\n    emailReceivedAt:  emailData.emailReceivedAt,\n    gmailMessageId:   emailData.gmailMessageId,\n    hasAttachment:    emailData.hasAttachment,\n    pdfAttachmentKey: emailData.pdfAttachmentKey,\n    pdfFileName:      emailData.pdfFileName,\n    pdfText:          pdfData.text  || '',\n    pdfPages:         pdfData.numpages || 0\n  },\n  binary: $input.item.binary\n};",
+        "mode": "runOnceForEachItem"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3360,
+        2560
+      ],
+      "id": "9cb1b86f-741c-435e-a60b-b35cdb764688",
+      "name": "Merge Email + PDF Data"
+    },
+    {
+      "parameters": {
+        "operation": "upload",
+        "bucketName": "Contracts-(ag-ad)",
+        "fileName": "attachment_0",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.s3",
+      "typeVersion": 1,
+      "position": [
+        3456,
+        2320
+      ],
+      "id": "26eb983b-cfb9-417b-b5ca-57ea15aa315e",
+      "name": "Upload a file",
+      "disabled": true,
+      "credentials": {
+        "s3": {
+          "id": "5vC9N63KEM0qHBdo",
+          "name": "S3 account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://ydoitzgqavfmbyrirxxe.supabase.co/storage/v1/object/Contracts-(ag-ad)/={{ $binary.data.fileName }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer YOUR_SUPABASE_SERVICE_ROLE_KEY"
+            },
+            {
+              "name": "apikey",
+              "value": "YOUR_SUPABASE_SERVICE_ROLE_KEY"
+            },
+            {
+              "name": "Content-Type",
+              "value": "={{ $binary.data.mimeType }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "binaryData",
+        "inputDataFieldName": "data",
+        "options": {}
+      },
+      "id": "5612af8d-aeda-47cd-8210-01545279c983",
+      "name": "Supabase Storage Upload",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3168,
+        3136
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const billData   = $input.item.json;\nconst billArr    = Array.isArray(billData) ? billData : [billData];\nconst bill       = billArr[0] || {};\nconst billId     = bill.id            || null;\nconst invoiceNo  = bill.invoice_number || null;\n\n// Get pdfAttachmentKey carried through Prepare Bill for Insert (item-linked)\n// This correctly resolves per-item because both nodes are in the same chain\n// after 'Collect All PDFs', so item linking works.\nlet pdfKey = null;\ntry { pdfKey = $('Prepare Bill for Insert').item.json.pdf_attachment_key; } catch(e) {}\n\n// Search Collect All PDFs items by key — avoids item-linking boundary issue\n// ($('Collect All PDFs').item always returns item 0 because it emits N from 1 input)\nconst allPdfItems = $('Collect All PDFs').all();\nconst matchItem   = allPdfItems.find(i => i.json.pdfAttachmentKey === pdfKey)\n                    || allPdfItems[0];\nconst origBinary  = matchItem.binary || {};\n\nconst safeName    = (invoiceNo || billId || 'bill').toString().replace(/[^a-zA-Z0-9_\\-]/g, '_');\nconst storagePath = 'Invoice_' + safeName + '.pdf';\n\nreturn {\n  json:   { bill_id: billId, invoice_number: invoiceNo, storagePath },\n  binary: (pdfKey && origBinary[pdfKey]) ? { pdfData: origBinary[pdfKey] } : {}\n};",
+        "mode": "runOnceForEachItem"
+      },
+      "id": "a1b2c3d4-pdf1-0001-0000-000000000001",
+      "name": "Prepare PDF Upload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        6752,
+        2560
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://ydoitzgqavfmbyrirxxe.supabase.co/storage/v1/object/bills/{{ $json.storagePath }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inlkb2l0emdxYXZmbWJ5cmlyeHhlIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NzAwNTI1NiwiZXhwIjoyMDkyNTgxMjU2fQ.nHSXgeQ28y1Y6sK7Ck3fTfRgPfwuV0XHpuMlbPxDryA"
+            },
+            {
+              "name": "Authorization",
+              "value": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inlkb2l0emdxYXZmbWJ5cmlyeHhlIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NzAwNTI1NiwiZXhwIjoyMDkyNTgxMjU2fQ.nHSXgeQ28y1Y6sK7Ck3fTfRgPfwuV0XHpuMlbPxDryA"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/pdf"
+            },
+            {
+              "name": "x-upsert",
+              "value": "true"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "binaryData",
+        "inputDataFieldName": "pdfData",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "a1b2c3d4-pdf1-0002-0000-000000000002",
+      "name": "Upload Bill PDF to Storage",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        6976,
+        2560
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const storagePath  = $('Prepare PDF Upload').item.json.storagePath;\nconst billId       = $('Prepare PDF Upload').item.json.bill_id;\nconst uploadResult = $input.item.json || {};\n\nconst uploadOk = !!(uploadResult.Key || uploadResult.path || uploadResult.Id);\nconst pdfUrl   = uploadOk\n  ? 'https://ydoitzgqavfmbyrirxxe.supabase.co/storage/v1/object/public/bills/' + storagePath\n  : null;\n\nreturn { json: { bill_id: billId, bill_pdf_url: pdfUrl } };",
+        "mode": "runOnceForEachItem"
+      },
+      "id": "a1b2c3d4-pdf1-0003-0000-000000000003",
+      "name": "Set Bill PDF URL",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        7200,
+        2560
+      ]
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "=https://ydoitzgqavfmbyrirxxe.supabase.co/rest/v1/bills?id=eq.{{ $json.bill_id }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inlkb2l0emdxYXZmbWJ5cmlyeHhlIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NzAwNTI1NiwiZXhwIjoyMDkyNTgxMjU2fQ.nHSXgeQ28y1Y6sK7Ck3fTfRgPfwuV0XHpuMlbPxDryA"
+            },
+            {
+              "name": "Authorization",
+              "value": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inlkb2l0emdxYXZmbWJ5cmlyeHhlIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NzAwNTI1NiwiZXhwIjoyMDkyNTgxMjU2fQ.nHSXgeQ28y1Y6sK7Ck3fTfRgPfwuV0XHpuMlbPxDryA"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Prefer",
+              "value": "return=minimal"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={ \"bill_pdf_url\": {{ $json.bill_pdf_url ? JSON.stringify($json.bill_pdf_url) : 'null' }} }",
+        "options": {}
+      },
+      "id": "a1b2c3d4-pdf1-0004-0000-000000000004",
+      "name": "PATCH Bill with PDF URL",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        7424,
+        2560
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "url": "=https://ydoitzgqavfmbyrirxxe.supabase.co/rest/v1/vendors?id=eq.{{ $('Prepare Bill for Insert').first().json.vendor_id }}&select=category&limit=1",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inlkb2l0emdxYXZmbWJ5cmlyeHhlIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NzAwNTI1NiwiZXhwIjoyMDkyNTgxMjU2fQ.nHSXgeQ28y1Y6sK7Ck3fTfRgPfwuV0XHpuMlbPxDryA"
+            },
+            {
+              "name": "Authorization",
+              "value": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inlkb2l0emdxYXZmbWJ5cmlyeHhlIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NzAwNTI1NiwiZXhwIjoyMDkyNTgxMjU2fQ.nHSXgeQ28y1Y6sK7Ck3fTfRgPfwuV0XHpuMlbPxDryA"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+      "name": "Fetch Agreement",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        6752,
+        1950
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Has Attachment?": {
+      "main": [
+        [
+          {
+            "node": "Collect All PDFs",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "No Attachment — Skip",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract PDF Text": {
+      "main": [
+        [
+          {
+            "node": "Merge Email + PDF Data",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Upload a file",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Known Vendor?": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Unknown Vendor — Skip",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Classification": {
+      "main": [
+        [
+          {
+            "node": "Route by Document Type1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Bill for Insert": {
+      "main": [
+        [
+          {
+            "node": "Supabase — Check Invoice Exists",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Supabase — Insert Bill": {
+      "main": [
+        []
+      ]
+    },
+    "Extract Email Metadata2": {
+      "main": [
+        [
+          {
+            "node": "Supabase — Check Duplicates2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Supabase — Lookup Vendor1": {
+      "main": [
+        [
+          {
+            "node": "Check Vendor Exists1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Vendor Exists1": {
+      "main": [
+        [
+          {
+            "node": "Known Vendor?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript": {
+      "main": [
+        [
+          {
+            "node": "Classify Document",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Anthropic Chat Model1": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Classify Document",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Classify Document": {
+      "main": [
+        [
+          {
+            "node": "Parse Classification",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Anthropic Chat Model (Bill)": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Extract Bill Fields",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route by Document Type1": {
+      "main": [
+        [
+          {
+            "node": "Extract Bill Fields",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Extract Bill Fields": {
+      "main": [
+        [
+          {
+            "node": "Prepare Bill for Insert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is New Bill?": {
+      "main": [
+        [
+          {
+            "node": "Restore Email Data",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Already Processed — Skip",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Supabase — Check Duplicates2": {
+      "main": [
+        [
+          {
+            "node": "Is New Bill?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Restore Email Data": {
+      "main": [
+        [
+          {
+            "node": "Has Attachment?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Approval Token1": {
+      "main": [
+        [
+          {
+            "node": "Supabase — Insert Approval Tokens1",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Fetch Agreement",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Supabase — Insert Approval Tokens1": {
+      "main": [
+        []
+      ]
+    },
+    "Merge Dedup Result": {
+      "main": [
+        [
+          {
+            "node": "Is Duplicate Invoice?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Duplicate Invoice?": {
+      "main": [
+        [
+          {
+            "node": "Supabase — Insert Bill1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Duplicate Invoice — Skip",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Duplicate Invoice Error?": {
+      "main": [
+        [
+          {
+            "node": "Duplicate Invoice — Skip1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Unexpected DB Error — Stop",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Supabase — Insert Bill1": {
+      "main": [
+        [
+          {
+            "node": "Prepare PDF Upload",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Is Duplicate Invoice Error?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare PDF Upload": {
+      "main": [
+        [
+          {
+            "node": "Upload Bill PDF to Storage",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upload Bill PDF to Storage": {
+      "main": [
+        [
+          {
+            "node": "Set Bill PDF URL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set Bill PDF URL": {
+      "main": [
+        [
+          {
+            "node": "PATCH Bill with PDF URL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PATCH Bill with PDF URL": {
+      "main": [
+        [
+          {
+            "node": "Generate Approval Token1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Microsoft Outlook Trigger": {
+      "main": [
+        [
+          {
+            "node": "Extract Email Metadata2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PDF Found?": {
+      "main": [
+        [
+          {
+            "node": "Extract PDF Text",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript2": {
+      "main": [
+        []
+      ]
+    },
+    "Supabase — Check Invoice Exists": {
+      "main": [
+        [
+          {
+            "node": "Merge Dedup Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge Email + PDF Data": {
+      "main": [
+        [
+          {
+            "node": "Supabase — Lookup Vendor1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Agreement": {
+      "main": [
+        [
+          {
+            "node": "Send a message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Collect All PDFs": {
+      "main": [
+        [
+          {
+            "node": "PDF Found?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "timeSavedMode": "fixed",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "versionId": "multi-pdf-v1-1779951187189",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "cdf70b57bf709e729102d961c6e6658996188de5dde963d8d16dedcf4234f771"
+  },
+  "id": "PN7YtIgJIj6Mg06A",
+  "tags": []
+}

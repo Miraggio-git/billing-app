@@ -1,0 +1,374 @@
+{
+  "name": "Miraggio — Vendor Payment Confirmation Email",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## 📧 Vendor Payment Confirmation Email\n\n**Flow:**\nSupabase payments INSERT → Webhook → Extract Data → Fetch Bill+Vendor → Merge → Has Receipt? →\n  YES: Download → **Save to Supabase Storage** → **Update payments record** → Send Gmail WITH attachment\n  NO: Send Gmail without attachment\n\n**PDF Storage path in Supabase:**\n`receipts/confirmed/{invoice_number}_{payment_id}.pdf`\nVisible in: Supabase → Storage → receipts bucket → confirmed/ folder\n\n**Setup:** Supabase → Integrations → Database Webhooks → payments table → INSERT → POST to webhook URL",
+        "height": 260,
+        "width": 480,
+        "color": 4
+      },
+      "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+      "name": "📋 SETUP",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [-900, -260]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "miraggio-payment-confirmation",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "id": "b2c3d4e5-f6a7-8901-bcde-f12345678901",
+      "name": "Payment Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [-500, 0],
+      "webhookId": "miraggio-payment-confirmation"
+    },
+    {
+      "parameters": {
+        "jsCode": "// n8n wraps the full HTTP request — actual Supabase data is inside .body.record\nconst record = $input.first().json.body.record;\n\nreturn [{\n  json: {\n    bill_id:              record.bill_id,\n    vendor_id:            record.vendor_id,\n    payment_id:           record.id,\n    payment_mode:         record.payment_mode,\n    utr_or_cheque_number: record.utr_or_cheque_number,\n    amount_paid:          record.amount_paid,\n    paid_at:              record.paid_at,\n    paid_by:              record.paid_by,\n    receipt_url:          record.receipt_url || null,\n    receipt_filename:     record.receipt_filename || 'payment_receipt.pdf',\n  }\n}];"
+      },
+      "id": "z9y8x7w6-v5u4-3210-tsr9-qponmlkjih01",
+      "name": "Extract Payment Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-260, 0]
+    },
+    {
+      "parameters": {
+        "url": "=https://ydoitzgqavfmbyrirxxe.supabase.co/rest/v1/bills?id=eq.{{ $json.bill_id }}&select=*,vendors(id,name,email,gstin,pan,contact_person,phone)",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inlkb2l0emdxYXZmbWJ5cmlyeHhlIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NzAwNTI1NiwiZXhwIjoyMDkyNTgxMjU2fQ.nHSXgeQ28y1Y6sK7Ck3fTfRgPfwuV0XHpuMlbPxDryA"
+            },
+            {
+              "name": "Authorization",
+              "value": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inlkb2l0emdxYXZmbWJ5cmlyeHhlIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NzAwNTI1NiwiZXhwIjoyMDkyNTgxMjU2fQ.nHSXgeQ28y1Y6sK7Ck3fTfRgPfwuV0XHpuMlbPxDryA"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "c3d4e5f6-a7b8-9012-cdef-123456789012",
+      "name": "Fetch Bill + Vendor",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [-20, 0]
+    },
+    {
+      "parameters": {
+        "jsCode": "const payment = $('Extract Payment Data').first().json;\nconst bill    = $input.first()?.json ?? {};\nconst vendor  = bill.vendors ?? {};\n\nconst formatAmount = (n) =>\n  '₹' + new Intl.NumberFormat('en-IN', { maximumFractionDigits: 2, minimumFractionDigits: 2 }).format(Number(n) || 0);\n\nconst formatDate = (d) => {\n  if (!d) return '—';\n  try { return new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'long', year: 'numeric' }); }\n  catch { return d; }\n};\n\nconst modeLabels = {\n  NEFT:'NEFT (National Electronic Funds Transfer)',\n  RTGS:'RTGS (Real-Time Gross Settlement)',\n  IMPS:'IMPS (Immediate Payment Service)',\n  UPI:'UPI', CHEQUE:'Cheque', CASH:'Cash', DD:'Demand Draft'\n};\nconst rawMode  = (payment.payment_mode ?? '').toUpperCase();\nconst modeLabel = modeLabels[rawMode] ?? payment.payment_mode ?? '—';\n\n// Clean filename: INV-001_payment-id.pdf\nconst invoiceNum  = (bill.invoice_number ?? 'NOINV').replace(/[^a-zA-Z0-9-_]/g, '-');\nconst paymentId   = (payment.payment_id ?? 'noid').slice(0, 8);\nconst storagePath = `confirmed/${invoiceNum}_${paymentId}.pdf`;\nconst publicUrl   = `https://ydoitzgqavfmbyrirxxe.supabase.co/storage/v1/object/public/receipts/${storagePath}`;\n\nreturn [{\n  json: {\n    payment_id:       payment.payment_id,\n    bill_id:          payment.bill_id,\n    vendor_id:        payment.vendor_id,\n    payment_mode:     modeLabel,\n    utr:              payment.utr_or_cheque_number ?? '—',\n    amount_formatted: formatAmount(payment.amount_paid ?? bill.amount ?? 0),\n    paid_at:          formatDate(payment.paid_at),\n    paid_by:          payment.paid_by ?? '—',\n    receipt_url:      payment.receipt_url ?? null,\n    receipt_filename: payment.receipt_filename ?? 'payment_receipt.pdf',\n    // Storage destination\n    storage_path:     storagePath,\n    storage_public_url: publicUrl,\n    // Bill\n    invoice_number:        bill.invoice_number ?? '—',\n    billing_period_start:  formatDate(bill.billing_period_start),\n    billing_period_end:    formatDate(bill.billing_period_end),\n    // Vendor\n    vendor_name:    vendor.name ?? 'Vendor',\n    vendor_email:   vendor.email ?? '',\n    vendor_gstin:   vendor.gstin ?? '—',\n    vendor_contact: vendor.contact_person ?? '—',\n  }\n}];"
+      },
+      "id": "d4e5f6a7-b8c9-0123-def0-234567890123",
+      "name": "Prepare Email Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [220, 0]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "loose" },
+          "conditions": [
+            {
+              "id": "has-receipt-check",
+              "leftValue": "={{ $json.receipt_url }}",
+              "rightValue": "",
+              "operator": { "type": "string", "operation": "isNotEmpty" }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "e5f6a7b8-c9d0-1234-ef01-345678901234",
+      "name": "Has Receipt?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [460, 0]
+    },
+    {
+      "parameters": {
+        "url": "={{ $('Prepare Email Data').first().json.receipt_url }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inlkb2l0emdxYXZmbWJ5cmlyeHhlIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NzAwNTI1NiwiZXhwIjoyMDkyNTgxMjU2fQ.nHSXgeQ28y1Y6sK7Ck3fTfRgPfwuV0XHpuMlbPxDryA"
+            },
+            {
+              "name": "Authorization",
+              "value": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inlkb2l0emdxYXZmbWJ5cmlyeHhlIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NzAwNTI1NiwiZXhwIjoyMDkyNTgxMjU2fQ.nHSXgeQ28y1Y6sK7Ck3fTfRgPfwuV0XHpuMlbPxDryA"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file",
+              "outputPropertyName": "data"
+            }
+          }
+        }
+      },
+      "id": "f6a7b8c9-d0e1-2345-f012-456789012345",
+      "name": "Download Receipt",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [700, -200]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://ydoitzgqavfmbyrirxxe.supabase.co/storage/v1/object/receipts/{{ $('Prepare Email Data').first().json.storage_path }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inlkb2l0emdxYXZmbWJ5cmlyeHhlIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NzAwNTI1NiwiZXhwIjoyMDkyNTgxMjU2fQ.nHSXgeQ28y1Y6sK7Ck3fTfRgPfwuV0XHpuMlbPxDryA"
+            },
+            {
+              "name": "Authorization",
+              "value": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inlkb2l0emdxYXZmbWJ5cmlyeHhlIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NzAwNTI1NiwiZXhwIjoyMDkyNTgxMjU2fQ.nHSXgeQ28y1Y6sK7Ck3fTfRgPfwuV0XHpuMlbPxDryA"
+            },
+            {
+              "name": "x-upsert",
+              "value": "true"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "binaryData",
+        "inputDataFieldName": "data",
+        "options": {}
+      },
+      "id": "s1t2u3v4-w5x6-7890-yzab-cdef01234567",
+      "name": "Save Receipt to Supabase Storage",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [940, -200]
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "=https://ydoitzgqavfmbyrirxxe.supabase.co/rest/v1/payments?id=eq.{{ $('Extract Payment Data').first().json.payment_id }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inlkb2l0emdxYXZmbWJ5cmlyeHhlIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NzAwNTI1NiwiZXhwIjoyMDkyNTgxMjU2fQ.nHSXgeQ28y1Y6sK7Ck3fTfRgPfwuV0XHpuMlbPxDryA"
+            },
+            {
+              "name": "Authorization",
+              "value": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inlkb2l0emdxYXZmbWJ5cmlyeHhlIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NzAwNTI1NiwiZXhwIjoyMDkyNTgxMjU2fQ.nHSXgeQ28y1Y6sK7Ck3fTfRgPfwuV0XHpuMlbPxDryA"
+            },
+            {
+              "name": "Prefer",
+              "value": "return=minimal"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"receipt_url\": \"{{ $('Prepare Email Data').first().json.storage_public_url }}\",\n  \"receipt_filename\": \"{{ $('Prepare Email Data').first().json.storage_path }}\",\n  \"receipt_sent_at\": \"{{ new Date().toISOString() }}\"\n}",
+        "options": {}
+      },
+      "id": "p1q2r3s4-t5u6-7890-vwxy-z01234567890",
+      "name": "Update Payment Record",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1180, -200]
+    },
+    {
+      "parameters": {
+        "url": "={{ $('Prepare Email Data').first().json.storage_public_url }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file",
+              "outputPropertyName": "data"
+            }
+          }
+        }
+      },
+      "id": "g2h3i4j5-k6l7-8901-mnop-qrstuvwx1234",
+      "name": "Download For Email Attachment",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1420, -200]
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ $('Prepare Email Data').first().json.vendor_email }}",
+        "subject": "=✅ Payment Confirmation — {{ $('Prepare Email Data').first().json.vendor_name }} | Invoice {{ $('Prepare Email Data').first().json.invoice_number }}",
+        "message": "=<div style=\"font-family:Arial,sans-serif;max-width:620px;margin:0 auto;color:#333;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden\">\n  <div style=\"background:#0f0f1a;padding:28px 32px;text-align:center\">\n    <h1 style=\"color:#ffffff;margin:0;font-size:26px;letter-spacing:4px;font-weight:800;text-transform:uppercase\">MIRAGGIO</h1>\n    <p style=\"color:#6b7280;margin:6px 0 0;font-size:11px;letter-spacing:2px;text-transform:uppercase\">Lifestyles Private Limited</p>\n  </div>\n  <div style=\"background:#f0fdf4;padding:20px 32px;border-bottom:1px solid #bbf7d0\">\n    <table style=\"width:100%\"><tr>\n      <td style=\"vertical-align:middle;padding-right:12px;font-size:28px;width:40px\">✅</td>\n      <td style=\"vertical-align:middle\">\n        <h2 style=\"color:#15803d;margin:0;font-size:18px;font-weight:700\">Payment Successfully Processed</h2>\n        <p style=\"color:#16a34a;margin:4px 0 0;font-size:13px\">Dear {{ $('Prepare Email Data').first().json.vendor_name }}, your invoice payment has been completed.</p>\n      </td>\n    </tr></table>\n  </div>\n  <div style=\"padding:28px 32px\">\n    <h3 style=\"margin:0 0 16px;font-size:12px;color:#6b7280;text-transform:uppercase;letter-spacing:1.5px;font-weight:700;border-bottom:2px solid #f1f5f9;padding-bottom:10px\">Payment Details</h3>\n    <table style=\"width:100%;border-collapse:collapse;font-size:14px\">\n      <tr style=\"border-bottom:1px solid #f8f9fa\">\n        <td style=\"padding:11px 12px;background:#f9fafb;font-weight:600;color:#374151;width:44%\">Invoice Number</td>\n        <td style=\"padding:11px 12px;font-weight:700;color:#0f0f1a\">{{ $('Prepare Email Data').first().json.invoice_number }}</td>\n      </tr>\n      <tr style=\"border-bottom:1px solid #f8f9fa\">\n        <td style=\"padding:11px 12px;background:#f9fafb;font-weight:600;color:#374151\">Amount Paid</td>\n        <td style=\"padding:11px 12px;font-weight:800;color:#15803d;font-size:18px\">{{ $('Prepare Email Data').first().json.amount_formatted }}</td>\n      </tr>\n      <tr style=\"border-bottom:1px solid #f8f9fa\">\n        <td style=\"padding:11px 12px;background:#f9fafb;font-weight:600;color:#374151\">Payment Mode</td>\n        <td style=\"padding:11px 12px\">{{ $('Prepare Email Data').first().json.payment_mode }}</td>\n      </tr>\n      <tr style=\"border-bottom:1px solid #f8f9fa\">\n        <td style=\"padding:11px 12px;background:#f9fafb;font-weight:600;color:#374151\">UTR / Reference No.</td>\n        <td style=\"padding:11px 12px;font-family:'Courier New',monospace;font-size:13px;font-weight:700;color:#1e40af\">{{ $('Prepare Email Data').first().json.utr }}</td>\n      </tr>\n      <tr style=\"border-bottom:1px solid #f8f9fa\">\n        <td style=\"padding:11px 12px;background:#f9fafb;font-weight:600;color:#374151\">Payment Date</td>\n        <td style=\"padding:11px 12px\">{{ $('Prepare Email Data').first().json.paid_at }}</td>\n      </tr>\n      <tr style=\"border-bottom:1px solid #f8f9fa\">\n        <td style=\"padding:11px 12px;background:#f9fafb;font-weight:600;color:#374151\">Billing Period</td>\n        <td style=\"padding:11px 12px;font-size:13px;color:#6b7280\">{{ $('Prepare Email Data').first().json.billing_period_start }} → {{ $('Prepare Email Data').first().json.billing_period_end }}</td>\n      </tr>\n      <tr>\n        <td style=\"padding:11px 12px;background:#f9fafb;font-weight:600;color:#374151\">Authorised By</td>\n        <td style=\"padding:11px 12px\">{{ $('Prepare Email Data').first().json.paid_by }}</td>\n      </tr>\n    </table>\n  </div>\n  <div style=\"padding:0 32px 28px\">\n    <div style=\"background:#fffbeb;border-left:4px solid #f59e0b;padding:14px 16px;border-radius:0 6px 6px 0\">\n      <p style=\"margin:0;font-size:13px;color:#92400e\"><strong>📎 Payment receipt is attached</strong> to this email for your records.</p>\n    </div>\n  </div>\n  <div style=\"background:#f8fafc;padding:20px 32px;border-top:1px solid #e2e8f0;text-align:center\">\n    <p style=\"color:#9ca3af;font-size:11px;margin:0;line-height:2\">Automated confirmation from <strong>Miraggio Lifestyles Private Limited</strong><br>Queries: <a href=\"mailto:accounts@miraggiolife.com\" style=\"color:#0f0f1a;font-weight:600\">accounts@miraggiolife.com</a></p>\n  </div>\n</div>",
+        "options": {
+          "attachments": "data"
+        }
+      },
+      "id": "a7b8c9d0-e1f2-3456-0123-567890123456",
+      "name": "Send Vendor Email (With Receipt)",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [1660, -200],
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "FG4rJySzWU0tpKcp",
+          "name": "Gmail OAuth2 API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "miraggio-bulk-payment-notification",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "id": "bulk-webhook-001-0000-0000-000000000001",
+      "name": "Bulk Payment Notification Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [-500, 400],
+      "webhookId": "miraggio-bulk-payment-notification"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Supabase DB Webhook posts { body: { type, table, record } }\nconst record = $input.first().json.body?.record ?? $input.first().json.record ?? $input.first().json;\n\nconst formatAmount = (n) =>\n  '₹' + new Intl.NumberFormat('en-IN', { maximumFractionDigits: 2, minimumFractionDigits: 2 }).format(Number(n) || 0);\n\nconst formatDate = (d) => {\n  if (!d) return '—';\n  try { return new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'long', year: 'numeric' }); }\n  catch { return d; }\n};\n\nconst modeLabels = {\n  NEFT: 'NEFT (National Electronic Funds Transfer)',\n  RTGS: 'RTGS (Real-Time Gross Settlement)',\n  IMPS: 'IMPS (Immediate Payment Service)',\n  UPI: 'UPI', CHEQUE: 'Cheque', CASH: 'Cash', DD: 'Demand Draft'\n};\nconst rawMode  = (record.payment_mode ?? '').toUpperCase();\nconst modeLabel = modeLabels[rawMode] ?? record.payment_mode ?? '—';\n\nreturn [{\n  json: {\n    notification_id:      record.id,\n    payment_id:           record.payment_id,\n    vendor_email:         record.vendor_email ?? '',\n    vendor_name:          record.vendor_name  ?? 'Vendor',\n    invoice_number:       record.invoice_number ?? '—',\n    amount_formatted:     formatAmount(record.amount_paid ?? 0),\n    payment_mode:         modeLabel,\n    utr:                  record.utr ?? '—',\n    paid_at:              formatDate(record.paid_at),\n    paid_by:              record.paid_by ?? '—',\n    billing_period_start: formatDate(record.billing_period_start),\n    billing_period_end:   formatDate(record.billing_period_end),\n  }\n}];"
+      },
+      "id": "bulk-extract-001-0000-0000-000000000002",
+      "name": "Extract Bulk Notification Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-260, 400]
+    },
+    {
+      "parameters": {
+        "toRecipients": "={{ $json.vendor_email }}",
+        "subject": "=✅ Payment Confirmation — {{ $json.vendor_name }} | Invoice {{ $json.invoice_number }}",
+        "bodyContent": "=<div style=\"font-family:Arial,sans-serif;max-width:620px;margin:0 auto;color:#333;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden\">\n  <div style=\"background:#0f0f1a;padding:28px 32px;text-align:center\">\n    <h1 style=\"color:#ffffff;margin:0;font-size:26px;letter-spacing:4px;font-weight:800;text-transform:uppercase\">MIRAGGIO</h1>\n    <p style=\"color:#6b7280;margin:6px 0 0;font-size:11px;letter-spacing:2px;text-transform:uppercase\">Lifestyles Private Limited</p>\n  </div>\n  <div style=\"background:#f0fdf4;padding:20px 32px;border-bottom:1px solid #bbf7d0\">\n    <table style=\"width:100%\"><tr>\n      <td style=\"vertical-align:middle;padding-right:12px;font-size:28px;width:40px\">✅</td>\n      <td style=\"vertical-align:middle\">\n        <h2 style=\"color:#15803d;margin:0;font-size:18px;font-weight:700\">Payment Successfully Processed</h2>\n        <p style=\"color:#16a34a;margin:4px 0 0;font-size:13px\">Dear {{ $json.vendor_name }}, your invoice payment has been completed.</p>\n      </td>\n    </tr></table>\n  </div>\n  <div style=\"padding:28px 32px\">\n    <h3 style=\"margin:0 0 16px;font-size:12px;color:#6b7280;text-transform:uppercase;letter-spacing:1.5px;font-weight:700;border-bottom:2px solid #f1f5f9;padding-bottom:10px\">Payment Details</h3>\n    <table style=\"width:100%;border-collapse:collapse;font-size:14px\">\n      <tr style=\"border-bottom:1px solid #f8f9fa\">\n        <td style=\"padding:11px 12px;background:#f9fafb;font-weight:600;color:#374151;width:44%\">Invoice Number</td>\n        <td style=\"padding:11px 12px;font-weight:700;color:#0f0f1a\">{{ $json.invoice_number }}</td>\n      </tr>\n      <tr style=\"border-bottom:1px solid #f8f9fa\">\n        <td style=\"padding:11px 12px;background:#f9fafb;font-weight:600;color:#374151\">Amount Paid</td>\n        <td style=\"padding:11px 12px;font-weight:800;color:#15803d;font-size:18px\">{{ $json.amount_formatted }}</td>\n      </tr>\n      <tr style=\"border-bottom:1px solid #f8f9fa\">\n        <td style=\"padding:11px 12px;background:#f9fafb;font-weight:600;color:#374151\">Payment Mode</td>\n        <td style=\"padding:11px 12px\">{{ $json.payment_mode }}</td>\n      </tr>\n      <tr style=\"border-bottom:1px solid #f8f9fa\">\n        <td style=\"padding:11px 12px;background:#f9fafb;font-weight:600;color:#374151\">UTR / Reference No.</td>\n        <td style=\"padding:11px 12px;font-family:'Courier New',monospace;font-size:13px;font-weight:700;color:#1e40af\">{{ $json.utr }}</td>\n      </tr>\n      <tr style=\"border-bottom:1px solid #f8f9fa\">\n        <td style=\"padding:11px 12px;background:#f9fafb;font-weight:600;color:#374151\">Payment Date</td>\n        <td style=\"padding:11px 12px\">{{ $json.paid_at }}</td>\n      </tr>\n      <tr style=\"border-bottom:1px solid #f8f9fa\">\n        <td style=\"padding:11px 12px;background:#f9fafb;font-weight:600;color:#374151\">Billing Period</td>\n        <td style=\"padding:11px 12px;font-size:13px;color:#6b7280\">{{ $json.billing_period_start }} → {{ $json.billing_period_end }}</td>\n      </tr>\n      <tr>\n        <td style=\"padding:11px 12px;background:#f9fafb;font-weight:600;color:#374151\">Authorised By</td>\n        <td style=\"padding:11px 12px\">{{ $json.paid_by }}</td>\n      </tr>\n    </table>\n  </div>\n  <div style=\"background:#f8fafc;padding:20px 32px;border-top:1px solid #e2e8f0;text-align:center\">\n    <p style=\"color:#9ca3af;font-size:11px;margin:0;line-height:2\">Automated confirmation from <strong>Miraggio Lifestyles Private Limited</strong><br>Queries: <a href=\"mailto:accounts@miraggiolife.com\" style=\"color:#0f0f1a;font-weight:600\">accounts@miraggiolife.com</a></p>\n  </div>\n</div>",
+        "bodyContentType": "html",
+        "options": {}
+      },
+      "id": "bulk-email-001-0000-0000-000000000003",
+      "name": "Send Bulk Payment Email",
+      "type": "n8n-nodes-base.microsoftOutlook",
+      "typeVersion": 2,
+      "position": [-20, 400],
+      "credentials": {
+        "microsoftOutlookOAuth2Api": {
+          "id": "OUTLOOK_CREDENTIAL_ID",
+          "name": "Microsoft Outlook"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "=https://ydoitzgqavfmbyrirxxe.supabase.co/rest/v1/payment_notifications?id=eq.{{ $('Extract Bulk Notification Data').first().json.notification_id }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inlkb2l0emdxYXZmbWJ5cmlyeHhlIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NzAwNTI1NiwiZXhwIjoyMDkyNTgxMjU2fQ.nHSXgeQ28y1Y6sK7Ck3fTfRgPfwuV0XHpuMlbPxDryA"
+            },
+            {
+              "name": "Authorization",
+              "value": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inlkb2l0emdxYXZmbWJ5cmlyeHhlIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NzAwNTI1NiwiZXhwIjoyMDkyNTgxMjU2fQ.nHSXgeQ28y1Y6sK7Ck3fTfRgPfwuV0XHpuMlbPxDryA"
+            },
+            {
+              "name": "Prefer",
+              "value": "return=minimal"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={ \"status\": \"sent\", \"sent_at\": \"{{ new Date().toISOString() }}\" }",
+        "options": {}
+      },
+      "id": "bulk-mark-sent-001-0000-0000-000000000004",
+      "name": "Mark Notification Sent",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [220, 400]
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ $json.vendor_email }}",
+        "subject": "=✅ Payment Confirmation — {{ $json.vendor_name }} | Invoice {{ $json.invoice_number }}",
+        "message": "=<div style=\"font-family:Arial,sans-serif;max-width:620px;margin:0 auto;color:#333;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden\">\n  <div style=\"background:#0f0f1a;padding:28px 32px;text-align:center\">\n    <h1 style=\"color:#ffffff;margin:0;font-size:26px;letter-spacing:4px;font-weight:800;text-transform:uppercase\">MIRAGGIO</h1>\n    <p style=\"color:#6b7280;margin:6px 0 0;font-size:11px;letter-spacing:2px;text-transform:uppercase\">Lifestyles Private Limited</p>\n  </div>\n  <div style=\"background:#f0fdf4;padding:20px 32px;border-bottom:1px solid #bbf7d0\">\n    <table style=\"width:100%\"><tr>\n      <td style=\"vertical-align:middle;padding-right:12px;font-size:28px;width:40px\">✅</td>\n      <td style=\"vertical-align:middle\">\n        <h2 style=\"color:#15803d;margin:0;font-size:18px;font-weight:700\">Payment Successfully Processed</h2>\n        <p style=\"color:#16a34a;margin:4px 0 0;font-size:13px\">Dear {{ $json.vendor_name }}, your invoice payment has been completed.</p>\n      </td>\n    </tr></table>\n  </div>\n  <div style=\"padding:28px 32px\">\n    <h3 style=\"margin:0 0 16px;font-size:12px;color:#6b7280;text-transform:uppercase;letter-spacing:1.5px;font-weight:700;border-bottom:2px solid #f1f5f9;padding-bottom:10px\">Payment Details</h3>\n    <table style=\"width:100%;border-collapse:collapse;font-size:14px\">\n      <tr style=\"border-bottom:1px solid #f8f9fa\">\n        <td style=\"padding:11px 12px;background:#f9fafb;font-weight:600;color:#374151;width:44%\">Invoice Number</td>\n        <td style=\"padding:11px 12px;font-weight:700;color:#0f0f1a\">{{ $json.invoice_number }}</td>\n      </tr>\n      <tr style=\"border-bottom:1px solid #f8f9fa\">\n        <td style=\"padding:11px 12px;background:#f9fafb;font-weight:600;color:#374151\">Amount Paid</td>\n        <td style=\"padding:11px 12px;font-weight:800;color:#15803d;font-size:18px\">{{ $json.amount_formatted }}</td>\n      </tr>\n      <tr style=\"border-bottom:1px solid #f8f9fa\">\n        <td style=\"padding:11px 12px;background:#f9fafb;font-weight:600;color:#374151\">Payment Mode</td>\n        <td style=\"padding:11px 12px\">{{ $json.payment_mode }}</td>\n      </tr>\n      <tr style=\"border-bottom:1px solid #f8f9fa\">\n        <td style=\"padding:11px 12px;background:#f9fafb;font-weight:600;color:#374151\">UTR / Reference No.</td>\n        <td style=\"padding:11px 12px;font-family:'Courier New',monospace;font-size:13px;font-weight:700;color:#1e40af\">{{ $json.utr }}</td>\n      </tr>\n      <tr style=\"border-bottom:1px solid #f8f9fa\">\n        <td style=\"padding:11px 12px;background:#f9fafb;font-weight:600;color:#374151\">Payment Date</td>\n        <td style=\"padding:11px 12px\">{{ $json.paid_at }}</td>\n      </tr>\n      <tr style=\"border-bottom:1px solid #f8f9fa\">\n        <td style=\"padding:11px 12px;background:#f9fafb;font-weight:600;color:#374151\">Billing Period</td>\n        <td style=\"padding:11px 12px;font-size:13px;color:#6b7280\">{{ $json.billing_period_start }} → {{ $json.billing_period_end }}</td>\n      </tr>\n      <tr>\n        <td style=\"padding:11px 12px;background:#f9fafb;font-weight:600;color:#374151\">Authorised By</td>\n        <td style=\"padding:11px 12px\">{{ $json.paid_by }}</td>\n      </tr>\n    </table>\n  </div>\n  <div style=\"background:#f8fafc;padding:20px 32px;border-top:1px solid #e2e8f0;text-align:center\">\n    <p style=\"color:#9ca3af;font-size:11px;margin:0;line-height:2\">Automated confirmation from <strong>Miraggio Lifestyles Private Limited</strong><br>Queries: <a href=\"mailto:accounts@miraggiolife.com\" style=\"color:#0f0f1a;font-weight:600\">accounts@miraggiolife.com</a></p>\n  </div>\n</div>",
+        "options": {}
+      },
+      "id": "b8c9d0e1-f2a3-4567-1234-678901234567",
+      "name": "Send Vendor Email (No Receipt)",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [700, 160],
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "FG4rJySzWU0tpKcp",
+          "name": "Gmail OAuth2 API"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Payment Webhook": {
+      "main": [[{ "node": "Extract Payment Data", "type": "main", "index": 0 }]]
+    },
+    "Extract Payment Data": {
+      "main": [[{ "node": "Fetch Bill + Vendor", "type": "main", "index": 0 }]]
+    },
+    "Fetch Bill + Vendor": {
+      "main": [[{ "node": "Prepare Email Data", "type": "main", "index": 0 }]]
+    },
+    "Prepare Email Data": {
+      "main": [[{ "node": "Has Receipt?", "type": "main", "index": 0 }]]
+    },
+    "Has Receipt?": {
+      "main": [
+        [{ "node": "Download Receipt", "type": "main", "index": 0 }],
+        [{ "node": "Send Vendor Email (No Receipt)", "type": "main", "index": 0 }]
+      ]
+    },
+    "Download Receipt": {
+      "main": [[{ "node": "Save Receipt to Supabase Storage", "type": "main", "index": 0 }]]
+    },
+    "Save Receipt to Supabase Storage": {
+      "main": [[{ "node": "Update Payment Record", "type": "main", "index": 0 }]]
+    },
+    "Update Payment Record": {
+      "main": [[{ "node": "Download For Email Attachment", "type": "main", "index": 0 }]]
+    },
+    "Download For Email Attachment": {
+      "main": [[{ "node": "Send Vendor Email (With Receipt)", "type": "main", "index": 0 }]]
+    },
+    "Bulk Payment Notification Webhook": {
+      "main": [[{ "node": "Extract Bulk Notification Data", "type": "main", "index": 0 }]]
+    },
+    "Extract Bulk Notification Data": {
+      "main": [[{ "node": "Send Bulk Payment Email", "type": "main", "index": 0 }]]
+    },
+    "Send Bulk Payment Email": {
+      "main": [[{ "node": "Mark Notification Sent", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": { "executionOrder": "v1" },
+  "staticData": null,
+  "tags": [],
+  "triggerCount": 2,
+  "updatedAt": "2026-05-19T00:00:00.000Z",
+  "versionId": "5"
+}
